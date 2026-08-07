@@ -101,7 +101,8 @@
     scanRaf: null,
     scanTracks: null,
     zxingReader: null,
-    toastTimer: null
+    toastTimer: null,
+    cloudOk: false
   };
 
   var view = document.getElementById("view");
@@ -252,6 +253,167 @@
     } catch (e) {
       // 缓存失败不影响主功能
     }
+  }
+
+  /* ---------- 云端同步（Supabase） ---------- */
+
+  var CLOUD_URL =
+    typeof WUJI_SUPABASE_URL !== "undefined" ? WUJI_SUPABASE_URL : "";
+  var CLOUD_ANON =
+    typeof WUJI_SUPABASE_ANON !== "undefined" ? WUJI_SUPABASE_ANON : "";
+  var CLOUD_OWNER =
+    typeof WUJI_OWNER_ID !== "undefined" ? WUJI_OWNER_ID : "";
+
+  function cloudEnabled() {
+    return !!(
+      CLOUD_URL &&
+      CLOUD_ANON &&
+      CLOUD_OWNER &&
+      typeof fetch === "function"
+    );
+  }
+
+  function cloudApi(path, options) {
+    options = options || {};
+    options.headers = Object.assign(
+      {
+        apikey: CLOUD_ANON,
+        Authorization: "Bearer " + CLOUD_ANON
+      },
+      options.headers || {}
+    );
+    return fetch(CLOUD_URL + "/rest/v1" + path, options);
+  }
+
+  function recordToRow(r) {
+    return {
+      id: r.id,
+      owner: CLOUD_OWNER,
+      name: r.name || "",
+      brand: r.brand || "",
+      emoji: r.emoji || "📦",
+      barcode: r.barcode || "",
+      photo: r.photo || null,
+      rating: r.rating || 0,
+      repurchase: r.repurchase || "unsure",
+      category: r.category || "",
+      subcategory: r.subcategory || "",
+      purchasetype: r.purchaseType || null,
+      purchasechannel: r.purchaseChannel || null,
+      price: r.price == null || r.price === "" ? null : r.price,
+      comment: r.comment || "",
+      status: r.status || "using",
+      method: r.method || "manual",
+      createdat: r.createdAt || new Date().toISOString(),
+      updatedat: r.updatedAt || new Date().toISOString()
+    };
+  }
+
+  function rowToRecord(row) {
+    return {
+      id: row.id,
+      name: row.name || "",
+      brand: row.brand || "",
+      emoji: row.emoji || "📦",
+      barcode: row.barcode || "",
+      photo: row.photo || null,
+      rating: row.rating || 0,
+      repurchase: row.repurchase || "unsure",
+      category: row.category || "",
+      subcategory: row.subcategory || "",
+      purchaseType: row.purchasetype || null,
+      purchaseChannel: row.purchasechannel || null,
+      price: row.price == null ? null : Number(row.price),
+      comment: row.comment || "",
+      status: row.status || "using",
+      method: row.method || "manual",
+      createdAt: row.createdat,
+      updatedAt: row.updatedat
+    };
+  }
+
+  function fetchCloudRecords() {
+    return cloudApi(
+      "/records?select=*&owner=eq." +
+        encodeURIComponent(CLOUD_OWNER) +
+        "&order=createdat.asc"
+    ).then(function (res) {
+      if (!res.ok) throw new Error("cloud " + res.status);
+      return res.json();
+    });
+  }
+
+  function upsertRecordToCloud(r) {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi("/records?on_conflict=id", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([recordToRow(r)])
+    }).catch(function () {});
+  }
+
+  function deleteRecordInCloud(id) {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi(
+      "/records?id=eq." +
+        encodeURIComponent(id) +
+        "&owner=eq." +
+        encodeURIComponent(CLOUD_OWNER),
+      { method: "DELETE" }
+    ).catch(function () {});
+  }
+
+  function clearCloudRecords() {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi(
+      "/records?owner=eq." + encodeURIComponent(CLOUD_OWNER),
+      { method: "DELETE" }
+    ).catch(function () {});
+  }
+
+  function syncFromCloud() {
+    if (!cloudEnabled()) {
+      state.cloudOk = false;
+      return;
+    }
+    fetchCloudRecords()
+      .then(function (cloudRows) {
+        state.cloudOk = true;
+        var cloudById = {};
+        cloudRows.forEach(function (cr) {
+          cloudById[cr.id] = cr;
+        });
+        var merged = state.records.slice();
+        var localById = {};
+        merged.forEach(function (r) {
+          localById[r.id] = r;
+        });
+        cloudRows.forEach(function (cr) {
+          var lr = localById[cr.id];
+          if (!lr) {
+            merged.push(rowToRecord(cr));
+          } else if (new Date(cr.updatedat) > new Date(lr.updatedAt)) {
+            var idx = merged.indexOf(lr);
+            merged[idx] = rowToRecord(cr);
+          }
+        });
+        var toPush = merged.filter(function (r) {
+          var cr = cloudById[r.id];
+          return !cr || new Date(r.updatedAt) > new Date(cr.updatedat);
+        });
+        state.records = merged;
+        saveRecords();
+        toPush.forEach(function (r) {
+          upsertRecordToCloud(r);
+        });
+        route();
+      })
+      .catch(function () {
+        state.cloudOk = false;
+      });
   }
 
   function saveProfile() {
@@ -659,7 +821,13 @@
       '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">🗑️</span>' +
       '<span class="row-main"><span class="row-name" style="color:var(--danger);">清空全部记录</span><span class="row-meta">不可恢复，请先导出</span></span><span>›</span></button>' +
       "</div>" +
-      '<div class="hint" style="margin-top:18px;">数据只保存在这台设备浏览器里，不会上传。</div>'
+      '<div class="hint" style="margin-top:18px;">' +
+      (!cloudEnabled()
+        ? "数据保存在这台设备浏览器里"
+        : state.cloudOk
+          ? "数据已同步到云端，换设备打开同一页面即可查看"
+          : "云端暂未连接，数据保存在本机浏览器") +
+      "</div>"
     );
   }
 
@@ -1587,6 +1755,7 @@
       saveBarcodeCache();
     }
     var now = new Date().toISOString();
+    var savedRec = null;
     if (e.id) {
       var idx = state.records.findIndex(function (r) {
         return r.id === e.id;
@@ -1595,17 +1764,18 @@
         state.records[idx] = Object.assign({}, state.records[idx], e, {
           updatedAt: now
         });
+        savedRec = state.records[idx];
       }
     } else {
-      state.records.push(
-        Object.assign({}, e, {
-          id: uid(),
-          createdAt: now,
-          updatedAt: now
-        })
-      );
+      savedRec = Object.assign({}, e, {
+        id: uid(),
+        createdAt: now,
+        updatedAt: now
+      });
+      state.records.push(savedRec);
     }
     saveRecords();
+    if (savedRec) upsertRecordToCloud(savedRec);
     state.editing = null;
     toast("已保存");
     location.hash = "#/home";
@@ -1674,6 +1844,7 @@
           return r.id !== id0;
         });
         saveRecords();
+        deleteRecordInCloud(id0);
         toast("已删除");
         location.hash = "#/home";
       }
@@ -1826,6 +1997,9 @@
       if (confirm("确定恢复示例数据吗？当前记录会被覆盖。")) {
         state.records = wujiSeedRecords();
         saveRecords();
+        state.records.forEach(function (r) {
+          upsertRecordToCloud(r);
+        });
         toast("已恢复示例数据");
         route();
       }
@@ -1835,6 +2009,7 @@
       if (confirm("确定清空全部记录吗？此操作不可恢复，建议先导出数据。")) {
         state.records = [];
         saveRecords();
+        clearCloudRecords();
         toast("已清空");
         route();
       }
@@ -1877,4 +2052,5 @@
 
   loadAll();
   route();
+  syncFromCloud();
 })();

@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
         lower = rel.lower()
         if (
             lower.startswith(".env")
-            or lower.endswith((".py", ".local.js"))
+            or lower.endswith(".py")
             or lower.startswith(".git")
             or "/." in "/" + lower
         ):
