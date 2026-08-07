@@ -28,9 +28,22 @@
     "文具办公",
     "其他"
   ];
-  var CATEGORY_OPTS = CATEGORIES.map(function (c) {
-    return { value: c, label: c };
-  });
+  var CATEGORY_EMOJI = {
+    "护肤美妆": "🧴",
+    "个护洗护": "🛁",
+    "日用清洁": "🧻",
+    "食品饮料": "🍜",
+    "家居": "🛋️",
+    "厨房用品": "🍳",
+    "数码电器": "📱",
+    "服饰": "👕",
+    "母婴": "🍼",
+    "宠物": "🐾",
+    "运动户外": "⚽",
+    "药品保健": "💊",
+    "文具办公": "✏️",
+    "其他": "📦"
+  };
 
   var CATEGORY_SUBS = {
     "护肤美妆": ["洁面", "水乳/精华", "面霜/眼霜", "防晒", "面膜", "彩妆", "身体护理", "其他"],
@@ -652,8 +665,10 @@
       esc(e.brand) +
       '">' +
       '<div class="label">品类（可选）</div>' +
-      '<div class="chips" id="rec-cat"></div>' +
-      '<div class="chips" id="rec-subcat" style="margin-top:8px;"></div>' +
+      '<button type="button" class="select-field" id="rec-cat-field" data-action="open-cat-picker">' +
+      '<span class="select-field-value" id="rec-cat-value">未选择</span>' +
+      '<span class="select-field-chevron" aria-hidden="true">▾</span>' +
+      "</button>" +
       '<div class="label">购买途径（可选）</div>' +
       '<div class="chips" id="rec-purch-type"></div>' +
       '<div class="chips" id="rec-purch-channel" style="margin-top:8px;"></div>' +
@@ -747,8 +762,7 @@
 
   function renderRecordControls() {
     renderStars();
-    renderChipGroup("rec-cat", CATEGORY_OPTS, state.editing.category, "category");
-    renderSubcat();
+    renderCatField();
     renderChipGroup(
       "rec-rebuy",
       [
@@ -795,28 +809,97 @@
       .join("");
   }
 
-  function renderSubcat() {
-    var el = document.getElementById("rec-subcat");
+  function renderCatField() {
+    var el = document.getElementById("rec-cat-value");
     if (!el) return;
-    var list = state.editing.category ? CATEGORY_SUBS[state.editing.category] : null;
-    if (!list) {
-      el.innerHTML =
-        '<div class="hint" style="text-align:left;">先选大类，再选小类</div>';
+    var c = state.editing.category;
+    if (!c) {
+      el.textContent = "未选择";
       return;
     }
-    el.innerHTML = list
-      .map(function (o) {
-        return (
-          '<button type="button" class="chip ' +
-          (state.editing.subcategory === o ? "on" : "") +
-          '" data-action="chip" data-key="subcategory" data-value="' +
-          o +
-          '">' +
-          o +
-          "</button>"
-        );
-      })
-      .join("");
+    var emoji = CATEGORY_EMOJI[c] || "📦";
+    var text =
+      state.editing.subcategory && state.editing.subcategory !== "其他"
+        ? c + " · " + state.editing.subcategory
+        : c;
+    el.textContent = emoji + " " + text;
+  }
+
+  function openCatPicker() {
+    var overlay = document.getElementById("cat-sheet");
+    if (overlay) {
+      overlay.style.display = "flex";
+    } else {
+      var sheet = document.createElement("div");
+      sheet.id = "cat-sheet";
+      sheet.className = "sheet-overlay";
+      sheet.setAttribute("data-action", "cat-close");
+      sheet.innerHTML =
+        '<div class="sheet" data-action="cat-noop">' +
+        '<div class="sheet-head">' +
+        '<div class="sheet-title">选择品类</div>' +
+        '<div class="sheet-actions">' +
+        '<button type="button" class="link-btn" data-action="cat-clear">清除</button>' +
+        '<button type="button" class="icon-btn" data-action="cat-close" aria-label="关闭">✕</button>' +
+        "</div></div>" +
+        '<div class="cat-grid" id="cat-main"></div>' +
+        '<div id="cat-sub"></div>' +
+        "</div>";
+      document.getElementById("app").appendChild(sheet);
+    }
+    renderCatSheet();
+  }
+
+  function closeCatPicker() {
+    var overlay = document.getElementById("cat-sheet");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  function renderCatSheet() {
+    var main = document.getElementById("cat-main");
+    if (!main) return;
+    main.innerHTML = CATEGORIES.map(function (c) {
+      return (
+        '<button type="button" class="cat-tile ' +
+        (state.editing.category === c ? "on" : "") +
+        '" data-action="cat-main" data-value="' +
+        c +
+        '">' +
+        '<span class="cat-tile-emoji" aria-hidden="true">' +
+        (CATEGORY_EMOJI[c] || "📦") +
+        "</span>" +
+        "<span>" +
+        c +
+        "</span></button>"
+      );
+    }).join("");
+    var sub = document.getElementById("cat-sub");
+    if (!sub) return;
+    var list = state.editing.category
+      ? CATEGORY_SUBS[state.editing.category]
+      : null;
+    if (!list) {
+      sub.innerHTML =
+        '<div class="hint" style="text-align:left;margin-top:14px;">点选大类后，可再选小类</div>';
+      return;
+    }
+    sub.innerHTML =
+      '<div class="label" style="margin-top:14px;">小类（可选）</div>' +
+      '<div class="chips">' +
+      list
+        .map(function (o) {
+          return (
+            '<button type="button" class="chip ' +
+            (state.editing.subcategory === o ? "on" : "") +
+            '" data-action="cat-sub" data-value="' +
+            o +
+            '">' +
+            o +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</div>";
   }
 
   function renderPhoto() {
@@ -1091,6 +1174,7 @@
 
   function route() {
     stopScanner();
+    closeCatPicker();
     var r = parseHash();
     var fn = VIEWS[r.path] || renderHome;
     view.innerHTML = fn(r.id);
@@ -1513,17 +1597,6 @@
     if (action === "chip") {
       if (state.editing) {
         state.editing[key] = value;
-        if (key === "category") {
-          state.editing.subcategory = "";
-          renderChipGroup(
-            "rec-cat",
-            CATEGORY_OPTS,
-            state.editing.category,
-            "category"
-          );
-          renderSubcat();
-        }
-        if (key === "subcategory") renderSubcat();
         if (key === "repurchase")
           renderChipGroup(
             "rec-rebuy",
@@ -1541,6 +1614,43 @@
         }
         if (key === "purchaseChannel") renderPurch();
       }
+      return;
+    }
+    if (action === "open-cat-picker") {
+      if (state.editing) openCatPicker();
+      return;
+    }
+    if (action === "cat-main") {
+      if (state.editing) {
+        state.editing.category = value;
+        state.editing.subcategory = "";
+        renderCatSheet();
+        renderCatField();
+      }
+      return;
+    }
+    if (action === "cat-sub") {
+      if (state.editing) {
+        state.editing.subcategory = value;
+        renderCatField();
+        closeCatPicker();
+      }
+      return;
+    }
+    if (action === "cat-clear") {
+      if (state.editing) {
+        state.editing.category = "";
+        state.editing.subcategory = "";
+        renderCatField();
+        renderCatSheet();
+      }
+      return;
+    }
+    if (action === "cat-close") {
+      closeCatPicker();
+      return;
+    }
+    if (action === "cat-noop") {
       return;
     }
     if (action === "save-record") {
