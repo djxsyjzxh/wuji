@@ -89,9 +89,10 @@
 
   var state = {
     records: [],
-    profile: { name: "物友", phone: "" },
+    profile: { name: "物友", phone: "", avatar: "" },
     session: null,
     authMode: "login",
+    editingNick: false,
     itemsSearch: "",
     itemsFilter: {
       category: "",
@@ -726,6 +727,18 @@
     localStorage.setItem(LS_PROFILE, JSON.stringify(state.profile));
   }
 
+  function saveNick() {
+    var el = document.getElementById("nick-input");
+    var name = el ? el.value.trim() : "";
+    if (!name) name = "物友";
+    state.profile.name = name;
+    state.editingNick = false;
+    saveProfile();
+    upsertProfileToCloud();
+    route();
+    toast("昵称已保存");
+  }
+
   function syncTip() {
     if (!cloudEnabled()) return "数据保存在这台设备浏览器里";
     return state.cloudOk
@@ -742,7 +755,11 @@
     }
     try {
       var prof = localStorage.getItem(LS_PROFILE);
-      if (prof) state.profile = Object.assign({ name: "小禾" }, JSON.parse(prof));
+      if (prof)
+        state.profile = Object.assign(
+          { name: "物友", phone: "", avatar: "" },
+          JSON.parse(prof)
+        );
     } catch (e) {
       state.profile = { name: "小禾" };
     }
@@ -1379,12 +1396,12 @@
 
   function renderProfile() {
     var m = monthStats();
-    var phone = state.profile.phone || (state.session ? state.session.user.phone : "");
     var loggedIn = authed();
+    var avatar = state.profile.avatar || "";
     return (
       '<div class="head"><div><div class="page-title">我的</div>' +
       '<div class="sub">' +
-      (loggedIn ? esc(state.profile.name) + " · " + phoneMask(phone) + " · " : "未登录 · ") +
+      (loggedIn ? esc(state.profile.name) + " · " : "未登录 · ") +
       "共记录 " +
       state.records.length +
       " 件 · 连续 " +
@@ -1394,23 +1411,31 @@
         ? '<button class="link-btn" data-action="logout">退出登录</button></div>'
         : '<button class="link-btn" data-action="open-auth">登录 / 注册</button></div>') +
       '<div class="avatar-block">' +
-      '<div class="avatar avatar-lg" aria-hidden="true">' +
-      (loggedIn ? esc((state.profile.name || "物").charAt(0)) : "👤") +
-      "</div>" +
-      '<div class="avatar-name">' +
-      (loggedIn ? esc(state.profile.name) : "未登录") +
-      "</div>" +
-      '<div class="avatar-phone">' +
-      (loggedIn ? phoneMask(phone) : "登录后记录自动同步到云端") +
-      "</div></div>" +
       (loggedIn
-        ? '<div class="card">' +
-          '<label class="label" for="profile-name">昵称</label>' +
-          '<input class="input" id="profile-name" type="text" value="' +
-          esc(state.profile.name) +
-          '">' +
-          '<button class="btn btn-primary" data-action="save-profile">保存</button>' +
-          "</div>"
+        ? '<button class="avatar avatar-lg avatar-edit" data-action="pick-avatar" aria-label="更换头像">' +
+          (avatar
+            ? '<img src="' + esc(avatar) + '" alt="头像">'
+            : esc((state.profile.name || "物").charAt(0))) +
+          '<span class="avatar-cam" aria-hidden="true">📷</span>' +
+          "</button>"
+        : '<div class="avatar avatar-lg" aria-hidden="true">👤</div>') +
+      (loggedIn
+        ? state.editingNick
+          ? '<div class="nick-edit">' +
+            '<input class="input" id="nick-input" maxlength="12" value="' +
+            esc(state.profile.name) +
+            '">' +
+            '<button class="btn btn-primary nick-save" data-action="save-nick">保存</button>' +
+            "</div>" +
+            '<div class="hint" style="margin-top:6px;">回车或点保存确认</div>'
+          : '<button class="avatar-name" data-action="edit-nick">' +
+            esc(state.profile.name) +
+            '<span class="nick-edit-hint">✎ 点击修改昵称</span></button>'
+        : '<div class="avatar-name">未登录</div>' +
+          '<div class="avatar-phone">登录后记录自动同步到云端</div>') +
+      "</div>" +
+      (loggedIn
+        ? ""
         : '<div class="card auth-entry">' +
           '<div class="auth-entry-text">登录后，记录会自动同步到云端，换设备登录同一账号也能查看</div>' +
           '<button class="btn btn-primary" data-action="open-auth">登录 / 注册</button>' +
@@ -2595,15 +2620,18 @@
       startScanner();
       return;
     }
-    if (action === "save-profile") {
-      var nameEl = document.getElementById("profile-name");
-      var name = nameEl ? nameEl.value.trim() : "";
-      if (!name) name = "物友";
-      state.profile.name = name;
-      saveProfile();
-      upsertProfileToCloud();
-      toast("已保存");
+    if (action === "pick-avatar") {
+      var avatarInput = document.getElementById("avatar-input");
+      if (avatarInput) avatarInput.click();
+      return;
+    }
+    if (action === "edit-nick") {
+      state.editingNick = true;
       route();
+      return;
+    }
+    if (action === "save-nick") {
+      saveNick();
       return;
     }
     if (action === "export") {
@@ -2683,6 +2711,29 @@
       renderPhoto();
       ev.target.value = "";
     });
+  });
+
+  document.getElementById("avatar-input").addEventListener("change", function (ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    readPhoto(file).then(function (dataUrl) {
+      if (dataUrl) {
+        state.profile.avatar = dataUrl;
+        saveProfile();
+        route();
+        toast("头像已更新");
+      } else {
+        toast("图片读取失败");
+      }
+      ev.target.value = "";
+    });
+  });
+
+  document.getElementById("view").addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" && ev.target && ev.target.id === "nick-input") {
+      ev.preventDefault();
+      saveNick();
+    }
   });
 
   if (lightbox) {
