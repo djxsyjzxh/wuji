@@ -536,7 +536,6 @@
       " 天" +
       (m.totalSpend ? " · 花费 ¥" + fmtMoney(m.totalSpend) : "") +
       "</div></div>" +
-      '<button class="btn btn-ghost" data-action="goto" data-to="#/scan">📷 扫码添加</button>' +
       '<div class="section">最近记录</div>' +
       '<div class="card">' +
       (recs.length
@@ -584,7 +583,6 @@
           esc(latest.name) +
           "</span>" +
           '<span class="row-meta">' +
-          (latest.brand ? esc(latest.brand) + " · " : "") +
           "已买 " +
           g.list.length +
           " 次</span>" +
@@ -665,11 +663,13 @@
     return (
       '<div class="topbar">' +
       '<button class="icon-btn" data-action="goto" data-to="#/home" aria-label="返回">‹</button>' +
-      "<h2>记录物品</h2>" +
-      '<button class="link-btn" data-action="goto" data-to="#/home">取消</button></div>' +
-      '<div class="chips" style="margin-bottom:4px;">' +
-      '<button class="chip" data-action="goto" data-to="#/scan">📷 扫码自动填写</button>' +
-      "</div>" +
+      "<h2>记录物品</h2></div>" +
+      '<button type="button" class="tool-btn" data-action="goto" data-to="#/scan">' +
+      '<span class="tool-icon" aria-hidden="true">📷</span>' +
+      '<span class="tool-main"><span class="tool-title">扫码自动填写</span>' +
+      '<span class="tool-sub">扫条码自动带出商品信息</span></span>' +
+      '<span class="tool-chevron" aria-hidden="true">›</span>' +
+      "</button>" +
       (e.barcode
         ? '<div class="hint" style="text-align:left;margin-top:8px;">已识别条码：' +
           esc(e.barcode) +
@@ -708,9 +708,13 @@
       '<textarea class="textarea" id="rec-comment" data-bind="comment" placeholder="比如：泡沫细腻，不假滑，会回购。">' +
       esc(e.comment || "") +
       "</textarea>" +
-      '<button class="upload" data-action="pick-photo" id="rec-upload">' +
-      (e.photo ? "" : "📷 拍张照 / 选择照片") +
-      "</button>" +
+      '<div class="label">照片（可选）</div>' +
+      '<div class="photo-actions" id="rec-upload">' +
+      '<button type="button" class="photo-btn" data-action="pick-photo" data-mode="camera">' +
+      '<span class="tool-icon" aria-hidden="true">📸</span><span>拍照</span></button>' +
+      '<button type="button" class="photo-btn" data-action="pick-photo">' +
+      '<span class="tool-icon" aria-hidden="true">🖼️</span><span>从相册选择</span></button>' +
+      "</div>" +
       '<div id="rec-photo"></div>' +
       '<button class="btn btn-primary" data-action="save-record">保存记录</button>'
     );
