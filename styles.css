@@ -705,9 +705,17 @@ button {
   color: var(--danger);
 }
 
+.search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 .search-box {
   position: relative;
-  margin-top: 14px;
+  flex: 1;
+  min-width: 0;
 }
 
 .search-box .input {
@@ -724,20 +732,47 @@ button {
   pointer-events: none;
 }
 
-.filter-chips {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding: 10px 0 2px;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.filter-chips::-webkit-scrollbar {
-  display: none;
-}
-
-.filter-chips .chip {
+.filter-btn {
   flex: none;
+  width: auto;
+  margin: 0;
+  padding: 11px 16px;
+  border-radius: 12px;
+  position: relative;
+  white-space: nowrap;
+}
+
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--star);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 5px;
+  margin-left: 4px;
+}
+
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  min-height: 0;
+}
+
+.filter-tag {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
 }
 
 .btn {

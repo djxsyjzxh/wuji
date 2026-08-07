@@ -99,7 +99,13 @@
     session: null,
     authMode: "login",
     itemsSearch: "",
-    itemsCat: "",
+    itemsFilter: {
+      category: "",
+      rating: "",
+      repurchase: "",
+      price: "",
+      source: ""
+    },
     expandedItems: {},
     editing: null,
     barcodeCache: {},
@@ -1032,24 +1038,31 @@
   }
 
   function renderItems() {
-    var filtered = filterRecords();
-    var count = groupCount(filtered);
+    var groups = filteredGroups();
+    var filtering = !!(state.itemsSearch || activeFilterCount());
     return (
       '<div class="head"><div><div class="page-title">我的物品</div>' +
-      '<div class="sub">共 ' +
-      state.records.length +
-      " 件记录 · " +
-      count +
-      " 种物品</div></div>" +
+      '<div class="sub">' +
+      (filtering
+        ? "找到 " + groups.length + " 种物品"
+        : "共 " + state.records.length + " 件记录 · " + groups.length + " 种物品") +
+      "</div></div>" +
       '<button class="icon-btn" data-action="new-record" aria-label="新增记录">＋</button></div>' +
+      '<div class="search-row">' +
       '<div class="search-box">' +
       '<span class="search-icon" aria-hidden="true">🔍</span>' +
-      '<input class="input" id="items-search" type="search" placeholder="搜索物品名称或品牌" value="' +
+      '<input class="input" id="items-search" type="search" placeholder="搜索名称 / 品牌 / 拼音" value="' +
       esc(state.itemsSearch) +
       '">' +
       "</div>" +
-      '<div class="chips filter-chips" id="items-filter">' +
-      renderItemsFilterChips() +
+      '<button type="button" class="btn filter-btn" data-action="open-filter">筛选' +
+      (activeFilterCount()
+        ? '<span class="filter-badge">' + activeFilterCount() + "</span>"
+        : "") +
+      "</button>" +
+      "</div>" +
+      '<div class="filter-tags" id="filter-tags">' +
+      renderFilterTags() +
       "</div>" +
       '<div id="items-list">' +
       itemsListHtml() +
@@ -1057,56 +1070,18 @@
     );
   }
 
-  function filterRecords() {
-    var q = String(state.itemsSearch || "").trim().toLowerCase();
-    var cat = state.itemsCat || "";
-    return state.records.filter(function (r) {
-      if (cat && r.category !== cat) return false;
-      if (q) {
-        var hay = ((r.name || "") + " " + (r.brand || "")).toLowerCase();
-        if (hay.indexOf(q) < 0) return false;
-      }
-      return true;
+  function activeFilterCount() {
+    var f = state.itemsFilter;
+    var n = 0;
+    Object.keys(f).forEach(function (k) {
+      if (f[k]) n++;
     });
+    return n;
   }
 
-  function groupCount(recs) {
-    var seen = {};
-    recs.forEach(function (r) {
-      seen[itemKey(r)] = 1;
-    });
-    return Object.keys(seen).length;
-  }
-
-  function renderItemsFilterChips() {
-    var cats = [];
-    state.records.forEach(function (r) {
-      if (r.category && cats.indexOf(r.category) < 0) cats.push(r.category);
-    });
-    cats.sort();
-    var html =
-      '<button type="button" class="chip ' +
-      (!state.itemsCat ? "on" : "") +
-      '" data-action="items-cat" data-value="">全部</button>';
-    html += cats
-      .map(function (c) {
-        return (
-          '<button type="button" class="chip ' +
-          (state.itemsCat === c ? "on" : "") +
-          '" data-action="items-cat" data-value="' +
-          esc(c) +
-          '">' +
-          esc(c) +
-          "</button>"
-        );
-      })
-      .join("");
-    return html;
-  }
-
-  function itemsListHtml() {
+  function filteredGroups() {
     var groups = {};
-    filterRecords().forEach(function (r) {
+    state.records.forEach(function (r) {
       var k = itemKey(r);
       if (!groups[k]) groups[k] = [];
       groups[k].push(r);
@@ -1123,10 +1098,48 @@
           new Date(la.updatedAt || la.createdAt)
         );
       });
+    var f = state.itemsFilter;
+    var q = String(state.itemsSearch || "").trim().toLowerCase();
+    return groupList.filter(function (g) {
+      var l = g.list[g.list.length - 1];
+      if (f.category && l.category !== f.category) return false;
+      if (f.rating === "high" && !(l.rating >= 4)) return false;
+      if (f.rating === "low" && !(l.rating > 0 && l.rating <= 2)) return false;
+      if (f.repurchase === "yes" && l.repurchase !== "yes") return false;
+      if (f.repurchase === "no" && l.repurchase !== "no") return false;
+      if (f.price === "lt50" && !(l.price != null && l.price < 50)) return false;
+      if (
+        f.price === "50to100" &&
+        !(l.price != null && l.price >= 50 && l.price <= 100)
+      )
+        return false;
+      if (f.price === "gt100" && !(l.price != null && l.price > 100))
+        return false;
+      if (f.source && l.purchaseType !== f.source) return false;
+      if (q) {
+        var hay = ((l.name || "") + " " + (l.brand || "")).toLowerCase();
+        var ok = hay.indexOf(q) >= 0;
+        if (
+          !ok &&
+          window.pinyinPro &&
+          typeof window.pinyinPro.match === "function"
+        ) {
+          try {
+            ok = window.pinyinPro.match(l.name + (l.brand || ""), q);
+          } catch (e) {}
+        }
+        if (!ok) return false;
+      }
+      return true;
+    });
+  }
+
+  function itemsListHtml() {
+    var groupList = filteredGroups();
     if (!groupList.length) {
       return (
         '<div class="empty"><span class="e">🔍</span>' +
-        (state.itemsSearch || state.itemsCat
+        (state.itemsSearch || activeFilterCount()
           ? "没有找到匹配的物品"
           : "还没有物品，先记录一件吧") +
         "</div>"
@@ -1186,10 +1199,134 @@
               return purchaseRow(r, i + 1);
             })
             .join("") +
+          "</div>" +
           "</div>"
         );
       })
       .join("");
+  }
+
+  function filterChipsFor(group, opts) {
+    var html = '<div class="chips">';
+    html +=
+      '<button type="button" class="chip ' +
+      (!state.itemsFilter[group] ? "on" : "") +
+      '" data-action="filter-set" data-group="' +
+      group +
+      '" data-value="">全部</button>';
+    opts.forEach(function (o) {
+      html +=
+        '<button type="button" class="chip ' +
+        (state.itemsFilter[group] === o.value ? "on" : "") +
+        '" data-action="filter-set" data-group="' +
+        group +
+        '" data-value="' +
+        o.value +
+        '">' +
+        o.label +
+        "</button>";
+    });
+    return html + "</div>";
+  }
+
+  function openFilterSheet() {
+    var overlay = document.getElementById("filter-sheet");
+    if (overlay) {
+      overlay.style.display = "flex";
+    } else {
+      var sheet = document.createElement("div");
+      sheet.id = "filter-sheet";
+      sheet.className = "sheet-overlay";
+      sheet.setAttribute("data-action", "sheet-close");
+      sheet.innerHTML =
+        '<div class="sheet" data-action="sheet-noop">' +
+        '<div class="sheet-head">' +
+        '<div class="sheet-title">筛选</div>' +
+        '<div class="sheet-actions">' +
+        '<button type="button" class="link-btn" data-action="filter-reset">重置</button>' +
+        '<button type="button" class="icon-btn" data-action="filter-close" aria-label="关闭">✕</button>' +
+        "</div></div>" +
+        '<div id="filter-body"></div>' +
+        '<button class="btn btn-primary" data-action="filter-done">完成</button>' +
+        "</div>";
+      document.getElementById("app").appendChild(sheet);
+    }
+    renderFilterBody();
+  }
+
+  function renderFilterBody() {
+    var el = document.getElementById("filter-body");
+    if (!el) return;
+    var cats = [];
+    state.records.forEach(function (r) {
+      if (r.category && cats.indexOf(r.category) < 0) cats.push(r.category);
+    });
+    cats.sort();
+    var html =
+      '<div class="label">分类</div>' +
+      filterChipsFor(
+        "category",
+        cats.map(function (c) {
+          return { value: c, label: c };
+        })
+      );
+    html +=
+      '<div class="label">星级</div>' +
+      filterChipsFor("rating", [
+        { value: "high", label: "4星以上" },
+        { value: "low", label: "2星及以下" }
+      ]);
+    html +=
+      '<div class="label">回购状态</div>' +
+      filterChipsFor("repurchase", [
+        { value: "yes", label: "会回购" },
+        { value: "no", label: "不会再买" }
+      ]);
+    html +=
+      '<div class="label">价格区间</div>' +
+      filterChipsFor("price", [
+        { value: "lt50", label: "50元以下" },
+        { value: "50to100", label: "50-100元" },
+        { value: "gt100", label: "100元以上" }
+      ]);
+    html +=
+      '<div class="label">购买来源</div>' +
+      filterChipsFor("source", [
+        { value: "online", label: "线上" },
+        { value: "offline", label: "线下" },
+        { value: "gift", label: "别人送的" }
+      ]);
+    el.innerHTML = html;
+  }
+
+  function renderFilterTags() {
+    var labels = {
+      rating: { high: "4星以上", low: "2星及以下" },
+      repurchase: { yes: "会回购", no: "不会再买" },
+      price: { lt50: "50元以下", "50to100": "50-100元", gt100: "100元以上" },
+      source: { online: "线上", offline: "线下", gift: "别人送的" }
+    };
+    var html = "";
+    Object.keys(state.itemsFilter).forEach(function (g) {
+      var v = state.itemsFilter[g];
+      if (!v) return;
+      var label = g === "category" ? v : (labels[g] || {})[v] || v;
+      html +=
+        '<button type="button" class="filter-tag" data-action="filter-set" data-group="' +
+        g +
+        '" data-value="">' +
+        esc(label) +
+        " ×</button>";
+    });
+    return html;
+  }
+
+  function refreshItemsAfterFilter() {
+    renderFilterBody();
+    var tags = document.getElementById("filter-tags");
+    if (tags) tags.innerHTML = renderFilterTags();
+    var list = document.getElementById("items-list");
+    if (list) list.innerHTML = itemsListHtml();
   }
 
   function renderProfile() {
@@ -1457,7 +1594,7 @@
   }
 
   function closeSheets() {
-    ["cat-sheet", "purch-sheet"].forEach(function (id) {
+    ["cat-sheet", "purch-sheet", "auth-sheet", "filter-sheet"].forEach(function (id) {
       var overlay = document.getElementById(id);
       if (overlay) overlay.style.display = "none";
     });
@@ -2235,12 +2372,25 @@
       location.hash = "#/record";
       return;
     }
-    if (action === "items-cat") {
-      state.itemsCat = value || "";
-      var filterEl = document.getElementById("items-filter");
-      if (filterEl) filterEl.innerHTML = renderItemsFilterChips();
-      var listEl = document.getElementById("items-list");
-      if (listEl) listEl.innerHTML = itemsListHtml();
+    if (action === "open-filter") {
+      openFilterSheet();
+      return;
+    }
+    if (action === "filter-set") {
+      var grp = el.getAttribute("data-group");
+      state.itemsFilter[grp] = value || "";
+      refreshItemsAfterFilter();
+      return;
+    }
+    if (action === "filter-reset") {
+      Object.keys(state.itemsFilter).forEach(function (k) {
+        state.itemsFilter[k] = "";
+      });
+      refreshItemsAfterFilter();
+      return;
+    }
+    if (action === "filter-close" || action === "filter-done") {
+      closeSheets();
       return;
     }
     if (action === "toggle-items") {
