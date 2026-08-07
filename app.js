@@ -67,6 +67,11 @@
     { value: "offline", label: "线下" },
     { value: "gift", label: "别人送的" }
   ];
+  var PURCHASE_EMOJI = {
+    online: "🛒",
+    offline: "🏬",
+    gift: "🎁"
+  };
   var PURCHASE_CHANNELS = {
     online: [
       { value: "淘宝/天猫", label: "淘宝/天猫" },
@@ -670,8 +675,10 @@
       '<span class="select-field-chevron" aria-hidden="true">▾</span>' +
       "</button>" +
       '<div class="label">购买途径（可选）</div>' +
-      '<div class="chips" id="rec-purch-type"></div>' +
-      '<div class="chips" id="rec-purch-channel" style="margin-top:8px;"></div>' +
+      '<button type="button" class="select-field" id="rec-purch-field" data-action="open-purch-picker">' +
+      '<span class="select-field-value" id="rec-purch-value">未选择</span>' +
+      '<span class="select-field-chevron" aria-hidden="true">▾</span>' +
+      "</button>" +
       '<label class="label" for="rec-price">购买价格（可选）</label>' +
       '<div style="position:relative;">' +
       '<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);">¥</span>' +
@@ -763,6 +770,7 @@
   function renderRecordControls() {
     renderStars();
     renderCatField();
+    renderPurchField();
     renderChipGroup(
       "rec-rebuy",
       [
@@ -773,40 +781,7 @@
       state.editing.repurchase,
       "repurchase"
     );
-    renderPurch();
     renderPhoto();
-  }
-
-  function renderPurch() {
-    renderChipGroup(
-      "rec-purch-type",
-      PURCHASE_TYPES,
-      state.editing.purchaseType,
-      "purchaseType"
-    );
-    var el = document.getElementById("rec-purch-channel");
-    if (!el) return;
-    var list = state.editing.purchaseType
-      ? PURCHASE_CHANNELS[state.editing.purchaseType]
-      : null;
-    if (!list) {
-      el.innerHTML =
-        '<div class="hint" style="text-align:left;">先选线上 / 线下，再选具体渠道</div>';
-      return;
-    }
-    el.innerHTML = list
-      .map(function (o) {
-        return (
-          '<button type="button" class="chip ' +
-          (state.editing.purchaseChannel === o.value ? "on" : "") +
-          '" data-action="chip" data-key="purchaseChannel" data-value="' +
-          o.value +
-          '">' +
-          o.label +
-          "</button>"
-        );
-      })
-      .join("");
   }
 
   function renderCatField() {
@@ -825,34 +800,83 @@
     el.textContent = emoji + " " + text;
   }
 
-  function openCatPicker() {
-    var overlay = document.getElementById("cat-sheet");
+  function renderPurchField() {
+    var el = document.getElementById("rec-purch-value");
+    if (!el) return;
+    var t = state.editing.purchaseType;
+    if (!t) {
+      el.textContent = "未选择";
+      return;
+    }
+    var meta = PURCHASE_TYPES.find(function (x) {
+      return x.value === t;
+    });
+    var emoji = PURCHASE_EMOJI[t] || "🛍️";
+    var label = meta ? meta.label : "";
+    var channel = state.editing.purchaseChannel;
+    el.textContent = emoji + " " + (channel ? label + " · " + channel : label);
+  }
+
+  function openSheet(cfg) {
+    var overlay = document.getElementById(cfg.id);
     if (overlay) {
       overlay.style.display = "flex";
     } else {
       var sheet = document.createElement("div");
-      sheet.id = "cat-sheet";
+      sheet.id = cfg.id;
       sheet.className = "sheet-overlay";
-      sheet.setAttribute("data-action", "cat-close");
+      sheet.setAttribute("data-action", "sheet-close");
       sheet.innerHTML =
-        '<div class="sheet" data-action="cat-noop">' +
+        '<div class="sheet" data-action="sheet-noop">' +
         '<div class="sheet-head">' +
-        '<div class="sheet-title">选择品类</div>' +
+        '<div class="sheet-title">' +
+        cfg.title +
+        "</div>" +
         '<div class="sheet-actions">' +
-        '<button type="button" class="link-btn" data-action="cat-clear">清除</button>' +
-        '<button type="button" class="icon-btn" data-action="cat-close" aria-label="关闭">✕</button>' +
+        '<button type="button" class="link-btn" data-action="' +
+        cfg.clearAction +
+        '">清除</button>' +
+        '<button type="button" class="icon-btn" data-action="sheet-close" aria-label="关闭">✕</button>' +
         "</div></div>" +
-        '<div class="cat-grid" id="cat-main"></div>' +
-        '<div id="cat-sub"></div>' +
+        '<div class="cat-grid" id="' +
+        cfg.gridId +
+        '"></div>' +
+        '<div id="' +
+        cfg.subId +
+        '"></div>' +
         "</div>";
       document.getElementById("app").appendChild(sheet);
     }
-    renderCatSheet();
+    cfg.render();
   }
 
-  function closeCatPicker() {
-    var overlay = document.getElementById("cat-sheet");
-    if (overlay) overlay.style.display = "none";
+  function closeSheets() {
+    ["cat-sheet", "purch-sheet"].forEach(function (id) {
+      var overlay = document.getElementById(id);
+      if (overlay) overlay.style.display = "none";
+    });
+  }
+
+  function openCatPicker() {
+    openSheet({
+      id: "cat-sheet",
+      title: "选择品类",
+      clearAction: "cat-clear",
+      gridId: "cat-main",
+      subId: "cat-sub",
+      render: renderCatSheet
+    });
+  }
+
+  function openPurchPicker() {
+    openSheet({
+      id: "purch-sheet",
+      title: "选择购买途径",
+      clearAction: "purch-clear",
+      gridId: "purch-main",
+      subId: "purch-sub",
+      render: renderPurchSheet
+    });
   }
 
   function renderCatSheet() {
@@ -895,6 +919,56 @@
             o +
             '">' +
             o +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</div>";
+  }
+
+  function renderPurchSheet() {
+    var main = document.getElementById("purch-main");
+    if (!main) return;
+    main.innerHTML = PURCHASE_TYPES.map(function (t) {
+      return (
+        '<button type="button" class="cat-tile ' +
+        (state.editing.purchaseType === t.value ? "on" : "") +
+        '" data-action="purch-main" data-value="' +
+        t.value +
+        '">' +
+        '<span class="cat-tile-emoji" aria-hidden="true">' +
+        (PURCHASE_EMOJI[t.value] || "🛍️") +
+        "</span><span>" +
+        t.label +
+        "</span></button>"
+      );
+    }).join("");
+    var sub = document.getElementById("purch-sub");
+    if (!sub) return;
+    var list = state.editing.purchaseType
+      ? PURCHASE_CHANNELS[state.editing.purchaseType]
+      : null;
+    if (!list) {
+      sub.innerHTML =
+        '<div class="hint" style="text-align:left;margin-top:14px;">' +
+        (state.editing.purchaseType === "gift"
+          ? "选好了，点其他区域或 ✕ 关闭即可"
+          : "先选线上 / 线下，再选具体渠道") +
+        "</div>";
+      return;
+    }
+    sub.innerHTML =
+      '<div class="label" style="margin-top:14px;">具体渠道</div>' +
+      '<div class="chips">' +
+      list
+        .map(function (o) {
+          return (
+            '<button type="button" class="chip ' +
+            (state.editing.purchaseChannel === o.value ? "on" : "") +
+            '" data-action="purch-channel" data-value="' +
+            o.value +
+            '">' +
+            o.label +
             "</button>"
           );
         })
@@ -1174,7 +1248,7 @@
 
   function route() {
     stopScanner();
-    closeCatPicker();
+    closeSheets();
     var r = parseHash();
     var fn = VIEWS[r.path] || renderHome;
     view.innerHTML = fn(r.id);
@@ -1608,11 +1682,6 @@
             state.editing.repurchase,
             "repurchase"
           );
-        if (key === "purchaseType") {
-          state.editing.purchaseChannel = null;
-          renderPurch();
-        }
-        if (key === "purchaseChannel") renderPurch();
       }
       return;
     }
@@ -1633,7 +1702,7 @@
       if (state.editing) {
         state.editing.subcategory = value;
         renderCatField();
-        closeCatPicker();
+        closeSheets();
       }
       return;
     }
@@ -1646,11 +1715,41 @@
       }
       return;
     }
-    if (action === "cat-close") {
-      closeCatPicker();
+    if (action === "open-purch-picker") {
+      if (state.editing) openPurchPicker();
       return;
     }
-    if (action === "cat-noop") {
+    if (action === "purch-main") {
+      if (state.editing) {
+        state.editing.purchaseType = value;
+        state.editing.purchaseChannel = null;
+        renderPurchSheet();
+        renderPurchField();
+      }
+      return;
+    }
+    if (action === "purch-channel") {
+      if (state.editing) {
+        state.editing.purchaseChannel = value;
+        renderPurchField();
+        closeSheets();
+      }
+      return;
+    }
+    if (action === "purch-clear") {
+      if (state.editing) {
+        state.editing.purchaseType = null;
+        state.editing.purchaseChannel = null;
+        renderPurchField();
+        renderPurchSheet();
+      }
+      return;
+    }
+    if (action === "sheet-close") {
+      closeSheets();
+      return;
+    }
+    if (action === "sheet-noop") {
       return;
     }
     if (action === "save-record") {
