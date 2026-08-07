@@ -576,20 +576,24 @@
       "-" +
       Math.random().toString(36).slice(2, 8) +
       ".jpg";
-    return fetch(CLOUD_URL + "/storage/v1/object/" + encodeURIComponent(path), {
-      method: "POST",
-      headers: {
-        apikey: CLOUD_ANON,
-        Authorization: "Bearer " + state.session.access_token,
-        "Content-Type": blob.type || "image/jpeg",
-        "x-upsert": "true"
-      },
-      body: blob
-    })
+    return fetch(
+      CLOUD_URL + "/storage/v1/object/wuji-photos/" + encodeURIComponent(path),
+      {
+        method: "POST",
+        headers: {
+          apikey: CLOUD_ANON,
+          Authorization: "Bearer " + state.session.access_token,
+          "Content-Type": blob.type || "image/jpeg"
+        },
+        body: blob
+      }
+    )
       .then(function (res) {
         if (!res.ok) throw new Error("upload " + res.status);
         return (
-          CLOUD_URL + "/storage/v1/object/public/" + encodeURIComponent(path)
+          CLOUD_URL +
+          "/storage/v1/object/public/wuji-photos/" +
+          encodeURIComponent(path)
         );
       })
       .catch(function () {
@@ -601,13 +605,16 @@
     if (!cloudEnabled() || !isStorageUrl(url)) return Promise.resolve();
     var p = url.split("/storage/v1/object/public/")[1];
     if (!p) return Promise.resolve();
-    return fetch(CLOUD_URL + "/storage/v1/object/" + encodeURIComponent(p), {
-      method: "DELETE",
-      headers: {
-        apikey: CLOUD_ANON,
-        Authorization: "Bearer " + state.session.access_token
+    return fetch(
+      CLOUD_URL + "/storage/v1/object/" + encodeURIComponent(p),
+      {
+        method: "DELETE",
+        headers: {
+          apikey: CLOUD_ANON,
+          Authorization: "Bearer " + state.session.access_token
+        }
       }
-    }).catch(function () {});
+    ).catch(function () {});
   }
 
   function syncFromCloud() {
