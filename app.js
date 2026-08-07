@@ -542,9 +542,71 @@
         {
           uid: currentOwner(),
           phone: state.session.user.phone || "",
-          nickname: state.profile.name || "物友"
+          nickname: state.profile.name || "物友",
+          avatar: state.profile.avatar || ""
         }
       ])
+    }).catch(function () {});
+  }
+
+  function dataUrlToBlob(dataUrl) {
+    var parts = String(dataUrl || "").split(",");
+    if (parts.length < 2) return null;
+    var mime = (parts[0].match(/data:(.*?);/) || [])[1] || "image/jpeg";
+    var bin = atob(parts[1]);
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  function isStorageUrl(s) {
+    return (
+      !!s && s.indexOf(CLOUD_URL + "/storage/v1/object/public/") === 0
+    );
+  }
+
+  function uploadImageToStorage(dataUrl) {
+    if (!cloudEnabled() || !dataUrl) return Promise.resolve(dataUrl);
+    var blob = dataUrlToBlob(dataUrl);
+    if (!blob) return Promise.resolve(dataUrl);
+    var path =
+      currentOwner() +
+      "/img-" +
+      Date.now().toString(36) +
+      "-" +
+      Math.random().toString(36).slice(2, 8) +
+      ".jpg";
+    return fetch(CLOUD_URL + "/storage/v1/object/" + encodeURIComponent(path), {
+      method: "POST",
+      headers: {
+        apikey: CLOUD_ANON,
+        Authorization: "Bearer " + state.session.access_token,
+        "Content-Type": blob.type || "image/jpeg",
+        "x-upsert": "true"
+      },
+      body: blob
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("upload " + res.status);
+        return (
+          CLOUD_URL + "/storage/v1/object/public/" + encodeURIComponent(path)
+        );
+      })
+      .catch(function () {
+        return dataUrl;
+      });
+  }
+
+  function deleteStorageFile(url) {
+    if (!cloudEnabled() || !isStorageUrl(url)) return Promise.resolve();
+    var p = url.split("/storage/v1/object/public/")[1];
+    if (!p) return Promise.resolve();
+    return fetch(CLOUD_URL + "/storage/v1/object/" + encodeURIComponent(p), {
+      method: "DELETE",
+      headers: {
+        apikey: CLOUD_ANON,
+        Authorization: "Bearer " + state.session.access_token
+      }
     }).catch(function () {});
   }
 
@@ -2499,11 +2561,15 @@
     if (action === "delete-record") {
       var id0 = el.getAttribute("data-id");
       if (confirm("确定删除这条记录吗？删除后不可恢复。")) {
+        var del = state.records.find(function (r) {
+          return r.id === id0;
+        });
         state.records = state.records.filter(function (r) {
           return r.id !== id0;
         });
         saveRecords();
         deleteRecordInCloud(id0);
+        if (del) deleteStorageFile(del.photo);
         toast("已删除");
         location.hash = "#/home";
       }
@@ -2710,12 +2776,18 @@
     if (!state.editing) newRecord();
     readPhoto(file).then(function (dataUrl) {
       if (dataUrl) {
-        state.editing.photo = dataUrl;
-        toast("已添加照片");
+        var old = state.editing.photo;
+        uploadImageToStorage(dataUrl).then(function (final) {
+          state.editing.photo = final;
+          if (isStorageUrl(old) && old !== final) deleteStorageFile(old);
+          renderPhoto();
+          toast(
+            isStorageUrl(final) ? "已添加照片（云端）" : "已添加照片（本机）"
+          );
+        });
       } else {
         toast("照片读取失败");
       }
-      renderPhoto();
       ev.target.value = "";
     });
   });
@@ -2725,10 +2797,17 @@
     if (!file) return;
     readPhoto(file).then(function (dataUrl) {
       if (dataUrl) {
-        state.profile.avatar = dataUrl;
-        saveProfile();
-        route();
-        toast("头像已更新");
+        var old = state.profile.avatar;
+        uploadImageToStorage(dataUrl).then(function (final) {
+          state.profile.avatar = final;
+          saveProfile();
+          upsertProfileToCloud();
+          if (isStorageUrl(old) && old !== final) deleteStorageFile(old);
+          route();
+          toast(
+            isStorageUrl(final) ? "头像已更新（云端）" : "头像已更新（本机）"
+          );
+        });
       } else {
         toast("图片读取失败");
       }
