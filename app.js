@@ -394,7 +394,9 @@
       }).catch(function () {});
     }
     clearSession();
-    showLogin();
+    closeAuthSheet();
+    route();
+    toast("已退出登录");
   }
 
   function cloudApi(path, options) {
@@ -579,10 +581,10 @@
 
   function renderLogin() {
     return (
-      '<div class="auth-wrap">' +
+      '<div class="auth-wrap auth-sheet">' +
       '<div class="auth-logo" aria-hidden="true">📦</div>' +
-      '<div class="auth-title">物记</div>' +
-      '<div class="auth-sub">用过才懂 · 记录每一件物品</div>' +
+      '<div class="auth-title">物记账号</div>' +
+      '<div class="auth-sub">登录后记录自动同步到云端</div>' +
       '<div class="auth-tabs">' +
       '<button type="button" class="auth-tab ' +
       (state.authMode === "login" ? "on" : "") +
@@ -610,13 +612,39 @@
     );
   }
 
-  function showLogin() {
-    document.body.classList.add("guest");
-    view.innerHTML = renderLogin();
+  function openAuthSheet() {
+    var overlay = document.getElementById("auth-sheet");
+    if (overlay) {
+      overlay.style.display = "flex";
+    } else {
+      var sheet = document.createElement("div");
+      sheet.id = "auth-sheet";
+      sheet.className = "sheet-overlay";
+      sheet.setAttribute("data-action", "sheet-close");
+      sheet.innerHTML =
+        '<div class="sheet" data-action="sheet-noop">' +
+        '<div class="sheet-head">' +
+        '<div class="sheet-title">账号</div>' +
+        '<button type="button" class="icon-btn" data-action="auth-close" aria-label="关闭">✕</button>' +
+        "</div>" +
+        '<div id="auth-form"></div>' +
+        "</div>";
+      document.getElementById("app").appendChild(sheet);
+    }
+    renderAuthForm();
+  }
+
+  function closeAuthSheet() {
+    var overlay = document.getElementById("auth-sheet");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  function renderAuthForm() {
+    var el = document.getElementById("auth-form");
+    if (el) el.innerHTML = renderLogin();
   }
 
   function enterApp() {
-    document.body.classList.remove("guest");
     state.cloudOk = false;
     loadProfileFromCloud();
     route();
@@ -625,7 +653,7 @@
 
   function setAuthMode(mode) {
     state.authMode = mode === "register" ? "register" : "login";
-    view.innerHTML = renderLogin();
+    renderAuthForm();
   }
 
   function submitAuth() {
@@ -670,6 +698,7 @@
           state.profile.phone = phone;
           saveProfile();
           saveSession();
+          closeAuthSheet();
           enterApp();
           toast(state.authMode === "register" ? "注册成功，欢迎使用" : "欢迎回来");
         } else if (r.ok && d.user && !d.access_token) {
@@ -1064,35 +1093,41 @@
   function renderProfile() {
     var m = monthStats();
     var phone = state.profile.phone || (state.session ? state.session.user.phone : "");
+    var loggedIn = authed();
     return (
       '<div class="head"><div><div class="page-title">我的</div>' +
       '<div class="sub">' +
-      esc(state.profile.name) +
-      " · " +
-      phoneMask(phone) +
-      " · 共记录 " +
+      (loggedIn ? esc(state.profile.name) + " · " + phoneMask(phone) + " · " : "未登录 · ") +
+      "共记录 " +
       state.records.length +
       " 件 · 连续 " +
       streakDays() +
       " 天</div></div>" +
-      '<button class="link-btn" data-action="logout">退出登录</button></div>' +
+      (loggedIn
+        ? '<button class="link-btn" data-action="logout">退出登录</button></div>'
+        : '<button class="link-btn" data-action="open-auth">登录 / 注册</button></div>') +
       '<div class="avatar-block">' +
       '<div class="avatar avatar-lg" aria-hidden="true">' +
-      esc((state.profile.name || "物").charAt(0)) +
+      (loggedIn ? esc((state.profile.name || "物").charAt(0)) : "👤") +
       "</div>" +
       '<div class="avatar-name">' +
-      esc(state.profile.name) +
+      (loggedIn ? esc(state.profile.name) : "未登录") +
       "</div>" +
       '<div class="avatar-phone">' +
-      phoneMask(phone) +
+      (loggedIn ? phoneMask(phone) : "登录后记录自动同步到云端") +
       "</div></div>" +
-      '<div class="card">' +
-      '<label class="label" for="profile-name">昵称</label>' +
-      '<input class="input" id="profile-name" type="text" value="' +
-      esc(state.profile.name) +
-      '">' +
-      '<button class="btn btn-primary" data-action="save-profile">保存</button>' +
-      "</div>" +
+      (loggedIn
+        ? '<div class="card">' +
+          '<label class="label" for="profile-name">昵称</label>' +
+          '<input class="input" id="profile-name" type="text" value="' +
+          esc(state.profile.name) +
+          '">' +
+          '<button class="btn btn-primary" data-action="save-profile">保存</button>' +
+          "</div>"
+        : '<div class="card auth-entry">' +
+          '<div class="auth-entry-text">登录后，记录会自动同步到云端，换设备登录同一账号也能查看</div>' +
+          '<button class="btn btn-primary" data-action="open-auth">登录 / 注册</button>' +
+          "</div>") +
       '<div class="section">数据</div>' +
       '<div class="card">' +
       '<a class="row" href="#/review" style="cursor:pointer;">' +
@@ -1113,7 +1148,7 @@
       '<span class="row-main"><span class="row-name" style="color:var(--danger);">清空全部记录</span><span class="row-meta">不可恢复，请先导出</span></span><span>›</span></button>' +
       "</div>" +
       '<div class="hint" style="margin-top:18px;">' +
-      syncTip() +
+      (loggedIn ? syncTip() : "未登录：数据只保存在本机浏览器，登录后自动同步到云端") +
       "</div>"
     );
   }
@@ -1722,10 +1757,6 @@
   };
 
   function route() {
-    if (!authed()) {
-      showLogin();
-      return;
-    }
     stopScanner();
     closeSheets();
     var r = parseHash();
@@ -2087,6 +2118,14 @@
       setAuthMode(value);
       return;
     }
+    if (action === "open-auth") {
+      openAuthSheet();
+      return;
+    }
+    if (action === "auth-close") {
+      closeAuthSheet();
+      return;
+    }
     if (action === "auth-submit") {
       submitAuth();
       return;
@@ -2356,17 +2395,18 @@
 
   loadAll();
   restoreSession();
-  if (!authed()) {
-    showLogin();
-  } else if (
-    state.session.expires_at &&
-    Date.now() > state.session.expires_at
-  ) {
-    refreshSession().then(function (ok) {
-      if (ok) enterApp();
-      else showLogin();
+  route();
+  if (authed()) {
+    var expired =
+      state.session.expires_at && Date.now() > state.session.expires_at;
+    var proceed = expired ? refreshSession() : Promise.resolve(true);
+    proceed.then(function (ok) {
+      if (!ok) {
+        clearSession();
+        route();
+        return;
+      }
+      syncFromCloud();
     });
-  } else {
-    enterApp();
   }
 })();
