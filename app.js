@@ -1810,11 +1810,11 @@
         esc(r.id) +
         '" aria-label="编辑">✎</button></div>' +
         (r.photo
-          ? '<button class="big-thumb" data-action="view-photo" data-src="' +
+          ? '<button class="big-thumb big-photo" data-action="view-photo" data-src="' +
             r.photo +
             '" aria-label="查看大图"><img src="' +
             r.photo +
-            '" alt="物品照片" style="width:100%;height:100%;border-radius:16px;object-fit:cover;"></button>'
+            '" alt="物品照片" style="width:100%;height:auto;max-height:460px;object-fit:contain;border-radius:16px;display:block;"></button>'
           : '<div class="big-thumb" aria-hidden="true">' +
             esc(recordEmoji(r)) +
             "</div>") +

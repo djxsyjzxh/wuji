@@ -1169,8 +1169,9 @@ button {
   width: 100%;
   border-radius: 14px;
   margin-top: 8px;
-  max-height: 220px;
-  object-fit: cover;
+  max-height: 460px;
+  object-fit: contain;
+  background: var(--surface-2);
   border: 1px solid var(--border);
 }
 
@@ -1268,6 +1269,12 @@ button {
   align-items: center;
   justify-content: center;
   font-size: 44px;
+}
+
+.big-thumb.big-photo {
+  height: auto;
+  min-height: 130px;
+  overflow: hidden;
 }
 
 button.big-thumb {
