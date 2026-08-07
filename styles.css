@@ -605,6 +605,25 @@ button.big-thumb {
   object-fit: cover;
 }
 
+.scan-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.scan-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.scan-row .btn {
+  flex: none;
+  width: auto;
+  margin: 0;
+  padding: 11px 18px;
+  white-space: nowrap;
+}
+
 .rank {
   width: 20px;
   height: 20px;

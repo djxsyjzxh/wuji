@@ -1064,9 +1064,9 @@
       '<div class="hint" id="scan-tip">把条码对准摄像头</div>' +
       '<button class="link-btn" id="scan-retry" data-action="scan-retry" style="display:none;margin:8px auto 0;">重新打开摄像头</button>' +
       '<div class="label">或手动输入条码</div>' +
-      '<div style="display:flex;gap:8px;">' +
+      '<div class="scan-row">' +
       '<input class="input" id="scan-manual" type="text" placeholder="输入 13 位条码">' +
-      '<button class="btn btn-ghost" data-action="scan-lookup" style="margin-top:0;flex:none;padding:11px 16px;">查找</button></div>' +
+      '<button class="btn btn-ghost" data-action="scan-lookup">查找</button></div>' +
       '<div class="hint">识别成功会自动带出商品信息；查不到就手动填写，录过的物品下次会秒识别。</div>'
     );
   }
