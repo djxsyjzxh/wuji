@@ -100,6 +100,7 @@
     authMode: "login",
     itemsSearch: "",
     itemsCat: "",
+    expandedItems: {},
     editing: null,
     barcodeCache: {},
     lastTab: "home",
@@ -894,6 +895,11 @@
       "</span>" +
       '<span style="text-align:right;flex:none;">' +
       (r.rating ? starText(r.rating) : "") +
+      (r.price != null
+        ? '<span style="display:block;font-size:11px;color:var(--accent);font-weight:600;margin-top:2px;">¥' +
+          esc(fmtMoney(r.price)) +
+          "</span>"
+        : "") +
       '<span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">' +
       esc(fmtDate(r.updatedAt || r.createdAt)) +
       "</span>" +
@@ -1129,9 +1135,21 @@
     return groupList
       .map(function (g) {
         var latest = g.list[g.list.length - 1];
+        var expanded = !!state.expandedItems[g.key];
+        var pl = purchaseLabel(latest);
+        var price = latest.price != null ? fmtMoney(latest.price) : "";
+        var rating = latest.rating || 0;
+        var repHigh = g.list.length >= 2;
+        var repLow =
+          !repHigh &&
+          rating > 0 &&
+          rating <= 2 &&
+          latest.repurchase !== "yes";
         return (
           '<div class="card item-card">' +
-          '<div class="item-head">' +
+          '<div class="item-head" data-action="toggle-items" data-key="' +
+          esc(g.key) +
+          '">' +
           '<span class="thumb" aria-hidden="true">' +
           esc(latest.emoji || "📦") +
           "</span>" +
@@ -1139,15 +1157,30 @@
           '<span class="row-name">' +
           esc(latest.name) +
           "</span>" +
-          '<span class="row-meta">' +
-          '<span class="buy-count">已买 <b>' +
+          '<span class="item-kv">' +
+          (price
+            ? '<span class="item-price">¥' + esc(price) + "</span>"
+            : "") +
+          (rating
+            ? '<span class="stars">★ ' + esc(rating) + "</span>"
+            : "") +
+          (pl ? '<span class="mini-tag">' + esc(pl) + "</span>" : "") +
+          '<span class="buy-count' +
+          (repHigh ? " rep-high" : repLow ? " rep-low" : "") +
+          '">已买 <b>' +
           g.list.length +
           "</b> 次</span></span>" +
           "</span>" +
           '<button class="link-btn" data-action="re-buy" data-id="' +
           esc(latest.id) +
           '">＋ 再买一次</button>' +
+          '<span class="item-chevron" aria-hidden="true">' +
+          (expanded ? "▾" : "▸") +
+          "</span>" +
           "</div>" +
+          '<div class="purchase-list"' +
+          (expanded ? "" : " hidden") +
+          ">" +
           g.list
             .map(function (r, i) {
               return purchaseRow(r, i + 1);
@@ -2208,6 +2241,13 @@
       if (filterEl) filterEl.innerHTML = renderItemsFilterChips();
       var listEl = document.getElementById("items-list");
       if (listEl) listEl.innerHTML = itemsListHtml();
+      return;
+    }
+    if (action === "toggle-items") {
+      var tkey = el.getAttribute("data-key");
+      state.expandedItems[tkey] = !state.expandedItems[tkey];
+      var tlist = document.getElementById("items-list");
+      if (tlist) tlist.innerHTML = itemsListHtml();
       return;
     }
     if (action === "edit-record") {

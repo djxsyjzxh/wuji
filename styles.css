@@ -573,6 +573,31 @@ button {
   gap: 10px;
   padding: 2px 0 10px;
   border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.item-kv {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.item-price {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.item-chevron {
+  color: var(--muted);
+  font-size: 12px;
+  flex: none;
+}
+
+.purchase-list {
+  padding-top: 6px;
 }
 
 .buy-count {
@@ -591,6 +616,25 @@ button {
   color: var(--accent);
   font-size: 13px;
   font-weight: 700;
+}
+
+.buy-count.rep-high {
+  background: var(--accent);
+  color: #fff;
+}
+
+.buy-count.rep-high b {
+  color: #fff;
+}
+
+.buy-count.rep-low {
+  color: var(--muted);
+  background: var(--surface-2);
+  opacity: 0.55;
+}
+
+.buy-count.rep-low b {
+  color: var(--muted);
 }
 
 .purchase-row {
