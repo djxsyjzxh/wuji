@@ -583,9 +583,9 @@
           esc(latest.name) +
           "</span>" +
           '<span class="row-meta">' +
-          "已买 " +
+          '<span class="buy-count">已买 <b>' +
           g.list.length +
-          " 次</span>" +
+          "</b> 次</span></span>" +
           "</span>" +
           '<button class="link-btn" data-action="re-buy" data-id="' +
           esc(latest.id) +

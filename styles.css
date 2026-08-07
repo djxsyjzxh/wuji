@@ -436,6 +436,24 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+.buy-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.buy-count b {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .purchase-row {
   padding: 10px 2px;
   border-bottom: 1px dashed var(--border);
