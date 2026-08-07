@@ -7,12 +7,6 @@
   var LS_BARCODE = "wuji.barcode.v1";
   var LS_SESSION = "wuji.session.v1";
 
-  var REPURCHASE_META = {
-    yes: "会回购",
-    no: "不会",
-    unsure: "不确定"
-  };
-
   var CATEGORIES = [
     "护肤美妆",
     "个护洗护",
@@ -208,9 +202,26 @@
       });
   }
 
+  function itemGroups(recs) {
+    var groups = {};
+    recs.forEach(function (r) {
+      var k = itemKey(r);
+      if (!groups[k]) groups[k] = [];
+      groups[k].push(r);
+    });
+    return Object.keys(groups).map(function (k) {
+      return groups[k];
+    });
+  }
+
+  function repurchaseText(r) {
+    var same = recordsByKey(itemKey(r));
+    return same.length >= 2
+      ? "已回购 " + (same.length - 1) + " 次"
+      : "首次购买";
+  }
+
   function purchaseRow(r, i) {
-    var rep =
-      r.repurchase !== "unsure" ? REPURCHASE_META[r.repurchase] : "";
     var pl = purchaseLabel(r);
     return (
       '<a class="row purchase-row" href="#/detail/r-' +
@@ -226,13 +237,6 @@
       '<span class="purchase-meta">' +
       (pl
         ? '<span class="mini-tag">' + esc(pl) + "</span>"
-        : "") +
-      (rep
-        ? '<span class="mini-tag rep-' +
-          r.repurchase +
-          '">' +
-          rep +
-          "</span>"
         : "") +
       "</span>" +
       "</span>" +
@@ -817,11 +821,9 @@
           return s + r.rating;
         }, 0) / rated.length;
     }
-    var yes = recs.filter(function (r) {
-      return r.repurchase === "yes";
-    }).length;
-    var decided = recs.filter(function (r) {
-      return r.repurchase !== "unsure";
+    var groups = itemGroups(recs);
+    var repurchased = groups.filter(function (g) {
+      return g.length >= 2;
     }).length;
     var cats = {};
     recs.forEach(function (r) {
@@ -852,7 +854,7 @@
     return {
       count: recs.length,
       avg: avg,
-      repurchaseRate: decided ? yes / decided : 0,
+      repurchaseRate: groups.length ? repurchased / groups.length : 0,
       best: best,
       worst: worst,
       cats: catList,
@@ -1024,17 +1026,61 @@
       m.activeDays +
       " 天</div></div>" +
       '<div class="section">最近记录</div>' +
-      '<div class="card">' +
-      (recs.length
-        ? recs
-            .map(function (r) {
-              return itemRow(r, "#/detail/r-" + r.id);
-            })
-            .join("")
-        : '<div class="empty"><span class="e">📦</span>还没有记录，点上面按钮记下第一件物品吧</div>') +
-      "</div>" +
-      '<button class="btn btn-primary" data-action="new-record">+ 记录一件物品</button>'
+      homeRecentHtml(recs) +
+      '<div class="home-spacer"></div>' +
+      '<div class="fixed-action"><button class="btn btn-primary" data-action="new-record">＋ 记录一件物品</button></div>'
     );
+  }
+
+  function homeDateLabel(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    var pad = function (n) {
+      return String(n).padStart(2, "0");
+    };
+    var s =
+      d.getFullYear() +
+      "-" +
+      pad(d.getMonth() + 1) +
+      "-" +
+      pad(d.getDate());
+    if (s === todayStr()) return "今天";
+    if (s === new Date(Date.now() - dayMs()).toISOString().slice(0, 10))
+      return "昨天";
+    return d.getMonth() + 1 + "月" + d.getDate() + "日";
+  }
+
+  function homeRecentHtml(recs) {
+    if (!recs.length) {
+      return (
+        '<div class="card"><div class="empty"><span class="e">📦</span>' +
+        "还没有记录，点下面按钮记下第一件物品吧</div></div>"
+      );
+    }
+    var groups = {};
+    recs.forEach(function (r) {
+      var l = homeDateLabel(r.updatedAt || r.createdAt);
+      (groups[l] = groups[l] || []).push(r);
+    });
+    var html = "";
+    var first = true;
+    Object.keys(groups).forEach(function (l) {
+      html +=
+        '<div class="home-date-label' +
+        (first ? " first" : "") +
+        '">' +
+        esc(l) +
+        "</div>" +
+        '<div class="card">' +
+        groups[l]
+          .map(function (r) {
+            return itemRow(r, "#/detail/r-" + r.id);
+          })
+          .join("") +
+        "</div>";
+      first = false;
+    });
+    return html;
   }
 
   function renderItems() {
@@ -1105,8 +1151,8 @@
       if (f.category && l.category !== f.category) return false;
       if (f.rating === "high" && !(l.rating >= 4)) return false;
       if (f.rating === "low" && !(l.rating > 0 && l.rating <= 2)) return false;
-      if (f.repurchase === "yes" && l.repurchase !== "yes") return false;
-      if (f.repurchase === "no" && l.repurchase !== "no") return false;
+      if (f.repurchase === "yes" && g.list.length < 2) return false;
+      if (f.repurchase === "no" && g.list.length !== 1) return false;
       if (f.price === "lt50" && !(l.price != null && l.price < 50)) return false;
       if (
         f.price === "50to100" &&
@@ -1156,8 +1202,7 @@
         var repLow =
           !repHigh &&
           rating > 0 &&
-          rating <= 2 &&
-          latest.repurchase !== "yes";
+          rating <= 2;
         return (
           '<div class="card item-card">' +
           '<div class="item-head" data-action="toggle-items" data-key="' +
@@ -1279,8 +1324,8 @@
     html +=
       '<div class="label">回购状态</div>' +
       filterChipsFor("repurchase", [
-        { value: "yes", label: "会回购" },
-        { value: "no", label: "不会再买" }
+        { value: "yes", label: "已回购（2次以上）" },
+        { value: "no", label: "仅买过 1 次" }
       ]);
     html +=
       '<div class="label">价格区间</div>' +
@@ -1302,7 +1347,7 @@
   function renderFilterTags() {
     var labels = {
       rating: { high: "4星以上", low: "2星及以下" },
-      repurchase: { yes: "会回购", no: "不会再买" },
+      repurchase: { yes: "已回购", no: "仅买过 1 次" },
       price: { lt50: "50元以下", "50to100": "50-100元", gt100: "100元以上" },
       source: { online: "线上", offline: "线下", gift: "别人送的" }
     };
@@ -1430,8 +1475,6 @@
       "</div>" +
       '<div class="label">我的评分</div>' +
       '<div id="rec-stars"></div>' +
-      '<div class="label">还会回购吗</div>' +
-      '<div class="seg3" id="rec-rebuy"></div>' +
       '<label class="label" for="rec-comment">一句话短评（可选）</label>' +
       '<textarea class="textarea" id="rec-comment" data-bind="comment" placeholder="比如：泡沫细腻，不假滑，会回购。">' +
       esc(e.comment || "") +
@@ -1497,34 +1540,7 @@
     renderStars();
     renderCatField();
     renderPurchField();
-    renderRepurchase();
     renderPhoto();
-  }
-
-  function renderRepurchase() {
-    var el = document.getElementById("rec-rebuy");
-    if (!el) return;
-    var opts = [
-      { value: "yes", emoji: "👍", label: "会回购" },
-      { value: "no", emoji: "👎", label: "不会" },
-      { value: "unsure", emoji: "🤔", label: "不确定" }
-    ];
-    el.innerHTML = opts
-      .map(function (o) {
-        return (
-          '<button type="button" class="seg ' +
-          (state.editing.repurchase === o.value ? "on" : "") +
-          '" data-action="chip" data-key="repurchase" data-value="' +
-          o.value +
-          '">' +
-          '<span class="seg-emoji" aria-hidden="true">' +
-          o.emoji +
-          "</span><span>" +
-          o.label +
-          "</span></button>"
-        );
-      })
-      .join("");
   }
 
   function renderCatField() {
@@ -1796,7 +1812,7 @@
         (r.price != null ? "¥" + fmtMoney(r.price) : "未填") +
         "</div></div>" +
         '<div><div class="kv-label">回购</div><div class="kv-value">' +
-        (REPURCHASE_META[r.repurchase] || "不确定") +
+        esc(repurchaseText(r)) +
         "</div></div>" +
         '<div><div class="kv-label">记录时间</div><div class="kv-value">' +
         esc(fmtDate(r.createdAt)) +
@@ -1885,7 +1901,10 @@
       "</b><span>记录天数</span></div>" +
       '<div class="stat"><b>' +
       (m.totalSpend ? "¥" + fmtMoney(m.totalSpend) : "—") +
-      "</b><span>本月花费</span></div></div>" +
+      "</b><span>本月花费</span></div>" +
+      '<div class="stat"><b>' +
+      Math.round(m.repurchaseRate * 100) +
+      "%</b><span>回购率</span></div></div>" +
       (m.best
         ? '<div class="card" style="margin-top:12px;">' +
           '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;">🏆 本月最佳</div>' +
@@ -1898,7 +1917,7 @@
           '</span><span class="row-meta">' +
           m.best.rating +
           " 分 · " +
-          (REPURCHASE_META[m.best.repurchase] || "—") +
+          repurchaseText(m.best) +
           "</span></span>" +
           '<span class="tag green">推荐</span></div>' +
           (m.worst && m.worst.id !== m.best.id
@@ -1912,7 +1931,7 @@
               '</span><span class="row-meta">' +
               m.worst.rating +
               " 分 · " +
-              (REPURCHASE_META[m.worst.repurchase] || "—") +
+              repurchaseText(m.worst) +
               "</span></span>" +
               '<span class="tag red">踩雷</span></div>'
             : "") +
@@ -2463,8 +2482,6 @@
     if (action === "chip") {
       if (state.editing) {
         state.editing[key] = value;
-        if (key === "repurchase")
-          renderRepurchase();
       }
       return;
     }
