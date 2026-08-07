@@ -98,6 +98,8 @@
     profile: { name: "物友", phone: "" },
     session: null,
     authMode: "login",
+    itemsSearch: "",
+    itemsCat: "",
     editing: null,
     barcodeCache: {},
     lastTab: "home",
@@ -168,7 +170,7 @@
   function purchaseLabel(r) {
     if (r.purchaseChannel) return r.purchaseChannel;
     if (r.purchaseType === "gift") return "别人送的";
-    return "未选";
+    return "";
   }
 
   function categoryLabel(r) {
@@ -202,6 +204,7 @@
   function purchaseRow(r, i) {
     var rep =
       r.repurchase !== "unsure" ? REPURCHASE_META[r.repurchase] : "";
+    var pl = purchaseLabel(r);
     return (
       '<a class="row purchase-row" href="#/detail/r-' +
       r.id +
@@ -210,18 +213,13 @@
       i +
       "</span>" +
       '<span class="row-main">' +
-      '<span class="purchase-head">' +
       '<span class="purchase-date">' +
       esc(fmtDate(r.createdAt)) +
       "</span>" +
-      (r.price != null
-        ? '<span class="purchase-price">¥' + esc(fmtMoney(r.price)) + "</span>"
-        : "") +
-      "</span>" +
       '<span class="purchase-meta">' +
-      '<span class="mini-tag">' +
-      esc(purchaseLabel(r)) +
-      "</span>" +
+      (pl
+        ? '<span class="mini-tag">' + esc(pl) + "</span>"
+        : "") +
       (rep
         ? '<span class="mini-tag rep-' +
           r.repurchase +
@@ -231,7 +229,14 @@
         : "") +
       "</span>" +
       "</span>" +
+      '<span class="purchase-side">' +
+      (r.price != null
+        ? '<span class="purchase-price">¥' +
+          esc(fmtMoney(r.price)) +
+          "</span>"
+        : "") +
       (r.rating ? starText(r.rating) : "") +
+      "</span>" +
       "</a>"
     );
   }
@@ -1029,8 +1034,81 @@
   }
 
   function renderItems() {
-    var groups = {};
+    var filtered = filterRecords();
+    var count = groupCount(filtered);
+    return (
+      '<div class="head"><div><div class="page-title">我的物品</div>' +
+      '<div class="sub">共 ' +
+      state.records.length +
+      " 件记录 · " +
+      count +
+      " 种物品</div></div>" +
+      '<button class="icon-btn" data-action="new-record" aria-label="新增记录">＋</button></div>' +
+      '<div class="search-box">' +
+      '<span class="search-icon" aria-hidden="true">🔍</span>' +
+      '<input class="input" id="items-search" type="search" placeholder="搜索物品名称或品牌" value="' +
+      esc(state.itemsSearch) +
+      '">' +
+      "</div>" +
+      '<div class="chips filter-chips" id="items-filter">' +
+      renderItemsFilterChips() +
+      "</div>" +
+      '<div id="items-list">' +
+      itemsListHtml() +
+      "</div>"
+    );
+  }
+
+  function filterRecords() {
+    var q = String(state.itemsSearch || "").trim().toLowerCase();
+    var cat = state.itemsCat || "";
+    return state.records.filter(function (r) {
+      if (cat && r.category !== cat) return false;
+      if (q) {
+        var hay = ((r.name || "") + " " + (r.brand || "")).toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  function groupCount(recs) {
+    var seen = {};
+    recs.forEach(function (r) {
+      seen[itemKey(r)] = 1;
+    });
+    return Object.keys(seen).length;
+  }
+
+  function renderItemsFilterChips() {
+    var cats = [];
     state.records.forEach(function (r) {
+      if (r.category && cats.indexOf(r.category) < 0) cats.push(r.category);
+    });
+    cats.sort();
+    var html =
+      '<button type="button" class="chip ' +
+      (!state.itemsCat ? "on" : "") +
+      '" data-action="items-cat" data-value="">全部</button>';
+    html += cats
+      .map(function (c) {
+        return (
+          '<button type="button" class="chip ' +
+          (state.itemsCat === c ? "on" : "") +
+          '" data-action="items-cat" data-value="' +
+          esc(c) +
+          '">' +
+          esc(c) +
+          "</button>"
+        );
+      })
+      .join("");
+    return html;
+  }
+
+  function itemsListHtml() {
+    var groups = {};
+    filterRecords().forEach(function (r) {
       var k = itemKey(r);
       if (!groups[k]) groups[k] = [];
       groups[k].push(r);
@@ -1047,7 +1125,16 @@
           new Date(la.updatedAt || la.createdAt)
         );
       });
-    var body = groupList
+    if (!groupList.length) {
+      return (
+        '<div class="empty"><span class="e">🔍</span>' +
+        (state.itemsSearch || state.itemsCat
+          ? "没有找到匹配的物品"
+          : "还没有物品，先记录一件吧") +
+        "</div>"
+      );
+    }
+    return groupList
       .map(function (g) {
         var latest = g.list[g.list.length - 1];
         return (
@@ -1078,18 +1165,6 @@
         );
       })
       .join("");
-    return (
-      '<div class="head"><div><div class="page-title">我的物品</div>' +
-      '<div class="sub">共 ' +
-      state.records.length +
-      " 件记录 · " +
-      groupList.length +
-      " 种物品</div></div>" +
-      '<button class="icon-btn" data-action="new-record" aria-label="新增记录">＋</button></div>' +
-      (groupList.length
-        ? body
-        : '<div class="empty"><span class="e">🗂️</span>还没有物品，先记录一件吧</div>')
-    );
   }
 
   function renderProfile() {
@@ -1559,7 +1634,7 @@
         esc(categoryLabel(r)) +
         "</div></div>" +
         '<div><div class="kv-label">购买途径</div><div class="kv-value">' +
-        esc(purchaseLabel(r)) +
+        esc(purchaseLabel(r) || "未填写") +
         "</div></div>" +
         '<div><div class="kv-label">价格</div><div class="kv-value">' +
         (r.price != null ? "¥" + fmtMoney(r.price) : "未填") +
@@ -2141,6 +2216,14 @@
       location.hash = "#/record";
       return;
     }
+    if (action === "items-cat") {
+      state.itemsCat = value || "";
+      var filterEl = document.getElementById("items-filter");
+      if (filterEl) filterEl.innerHTML = renderItemsFilterChips();
+      var listEl = document.getElementById("items-list");
+      if (listEl) listEl.innerHTML = itemsListHtml();
+      return;
+    }
     if (action === "edit-record") {
       var r0 = state.records.find(function (x) {
         return x.id === el.getAttribute("data-id");
@@ -2364,6 +2447,12 @@
 
   document.getElementById("view").addEventListener("input", function (ev) {
     var t = ev.target;
+    if (t.id === "items-search") {
+      state.itemsSearch = t.value;
+      var listEl = document.getElementById("items-list");
+      if (listEl) listEl.innerHTML = itemsListHtml();
+      return;
+    }
     var bind = t.getAttribute("data-bind");
     if (state.editing && bind) {
       state.editing[bind] = t.value;
