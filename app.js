@@ -905,17 +905,28 @@
       esc(r.name) +
       "</span>" +
       (cat ? '<span class="row-meta">' + esc(cat) + "</span>" : "") +
-      "</span>" +
-      '<span style="text-align:right;flex:none;">' +
-      (r.rating ? starText(r.rating) : "") +
-      (r.price != null
-        ? '<span style="display:block;font-size:11px;color:var(--accent);font-weight:600;margin-top:2px;">¥' +
-          esc(fmtMoney(r.price)) +
-          "</span>"
+      (r.rating
+        ? '<span class="row-score">' + esc(r.rating) + " 分</span>" +
+          starIcons(r.rating)
         : "") +
+      "</span>" +
+      '<span class="row-price">' +
+      (r.price != null ? "¥" + esc(fmtMoney(r.price)) : "") +
       "</span>" +
       "</a>"
     );
+  }
+
+  function starIcons(v) {
+    var n = Math.max(0, Math.min(5, Math.round(Number(v) || 0)));
+    var html = "";
+    for (var i = 1; i <= 5; i++) {
+      html +=
+        '<span class="star-ico' +
+        (i <= n ? " on" : "") +
+        '" aria-hidden="true">★</span>';
+    }
+    return '<span class="stars-ico">' + html + "</span>";
   }
 
   function communityCard(c) {
@@ -1096,7 +1107,7 @@
         ? "找到 " + groups.length + " 种物品"
         : "共 " + state.records.length + " 件记录 · " + groups.length + " 种物品") +
       "</div></div>" +
-      '<button class="icon-btn" data-action="new-record" aria-label="新增记录">＋</button></div>' +
+      '<button class="icon-btn add-btn" data-action="new-record" aria-label="新增记录">＋</button></div>' +
       '<div class="search-row">' +
       '<div class="search-box">' +
       '<span class="search-icon" aria-hidden="true">🔍</span>' +
@@ -1232,9 +1243,9 @@
           g.list.length +
           "</b> 次</span></span>" +
           "</span>" +
-          '<button class="link-btn" data-action="re-buy" data-id="' +
+          '<button class="rebuy-btn" data-action="re-buy" data-id="' +
           esc(latest.id) +
-          '">＋ 再买一次</button>' +
+          '">再买一次</button>' +
           '<span class="item-chevron" aria-hidden="true">' +
           (expanded ? "▾" : "▸") +
           "</span>" +
@@ -1427,6 +1438,9 @@
       '<button class="row" data-action="export" style="cursor:pointer;">' +
       '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">⬇️</span>' +
       '<span class="row-main"><span class="row-name">导出我的数据</span><span class="row-meta">下载 JSON 文件</span></span><span>›</span></button>' +
+      '<button class="row" data-action="export-excel" style="cursor:pointer;">' +
+      '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">📊</span>' +
+      '<span class="row-main"><span class="row-name">导出 Excel 报表</span><span class="row-meta">下载 .xlsx 表格文件</span></span><span>›</span></button>' +
       "</div>" +
       '<div class="hint" style="margin-top:18px;">' +
       (loggedIn ? syncTip() : "未登录：数据只保存在本机浏览器，登录后自动同步到云端") +
@@ -2615,6 +2629,39 @@
       a.click();
       document.body.removeChild(a);
       toast("已导出");
+      return;
+    }
+    if (action === "export-excel") {
+      if (typeof XLSX === "undefined") {
+        toast("导出组件加载失败，请刷新重试");
+        return;
+      }
+      var rows = state.records.map(function (r) {
+        return {
+          "物品名称": r.name || "",
+          "品牌": r.brand || "",
+          "品类": r.category || "",
+          "小类": r.subcategory || "",
+          "购买来源":
+            r.purchaseType === "gift"
+              ? "别人送的"
+              : r.purchaseType === "online"
+                ? "线上"
+                : r.purchaseType === "offline"
+                  ? "线下"
+                  : "",
+          "购买渠道": r.purchaseChannel || "",
+          "价格（元）": r.price == null ? "" : r.price,
+          "评分": r.rating || "",
+          "购买日期": r.createdAt ? r.createdAt.slice(0, 10) : "",
+          "短评": r.comment || ""
+        };
+      });
+      var ws = XLSX.utils.json_to_sheet(rows);
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "物记数据");
+      XLSX.writeFile(wb, "物记数据导出.xlsx");
+      toast("已导出 Excel");
       return;
     }
   });
