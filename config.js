@@ -1,0 +1,3 @@
+// Supabase 项目配置（anon 为公开密钥，可安全公开）
+var WUJI_SUPABASE_URL = "https://dszqdaohbidioyhqvbiz.supabase.co";
+var WUJI_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRzenFkYW9oYmlkaW95aHF2Yml6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYwOTQ4MTEsImV4cCI6MjEwMTY3MDgxMX0.TLGLLRN4XR7b0RPvVzRWokGO8a-bxncd1I04bwnwRtE";
