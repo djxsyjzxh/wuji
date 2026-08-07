@@ -196,21 +196,35 @@
   }
 
   function purchaseRow(r, i) {
+    var rep =
+      r.repurchase !== "unsure" ? REPURCHASE_META[r.repurchase] : "";
     return (
-      '<a class="row" href="#/detail/r-' +
+      '<a class="row purchase-row" href="#/detail/r-' +
       r.id +
       '">' +
-      '<span style="font-size:12px;color:var(--muted);width:46px;flex:none;">第' +
+      '<span class="purchase-badge" aria-hidden="true">' +
       i +
-      "次</span>" +
-      '<span class="row-main">' +
-      '<span class="row-name">' +
-      esc(fmtDate(r.createdAt)) +
-      (r.price != null ? " · ¥" + esc(fmtMoney(r.price)) : "") +
       "</span>" +
-      '<span class="row-meta">' +
+      '<span class="row-main">' +
+      '<span class="purchase-head">' +
+      '<span class="purchase-date">' +
+      esc(fmtDate(r.createdAt)) +
+      "</span>" +
+      (r.price != null
+        ? '<span class="purchase-price">¥' + esc(fmtMoney(r.price)) + "</span>"
+        : "") +
+      "</span>" +
+      '<span class="purchase-meta">' +
+      '<span class="mini-tag">' +
       esc(purchaseLabel(r)) +
-      (r.repurchase !== "unsure" ? " · " + REPURCHASE_META[r.repurchase] : "") +
+      "</span>" +
+      (rep
+        ? '<span class="mini-tag rep-' +
+          r.repurchase +
+          '">' +
+          rep +
+          "</span>"
+        : "") +
       "</span>" +
       "</span>" +
       (r.rating ? starText(r.rating) : "") +
@@ -560,8 +574,8 @@
       .map(function (g) {
         var latest = g.list[g.list.length - 1];
         return (
-          '<div class="card" style="margin-top:12px;">' +
-          '<div style="display:flex;align-items:center;gap:10px;padding:2px 0 10px;border-bottom:1px solid var(--border);">' +
+          '<div class="card item-card">' +
+          '<div class="item-head">' +
           '<span class="thumb" aria-hidden="true">' +
           esc(latest.emoji || "📦") +
           "</span>" +
@@ -689,7 +703,7 @@
       '<div class="label">我的评分</div>' +
       '<div id="rec-stars"></div>' +
       '<div class="label">还会回购吗</div>' +
-      '<div class="chips" id="rec-rebuy"></div>' +
+      '<div class="seg3" id="rec-rebuy"></div>' +
       '<label class="label" for="rec-comment">一句话短评（可选）</label>' +
       '<textarea class="textarea" id="rec-comment" data-bind="comment" placeholder="比如：泡沫细腻，不假滑，会回购。">' +
       esc(e.comment || "") +
@@ -747,41 +761,38 @@
     el.innerHTML = html;
   }
 
-  function renderChipGroup(id, options, current, key) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.innerHTML = options
-      .map(function (o) {
-        return (
-          '<button type="button" class="chip ' +
-          (current === o.value ? "on" : "") +
-          '" data-action="chip" data-key="' +
-          key +
-          '" data-value="' +
-          o.value +
-          '">' +
-          o.label +
-          "</button>"
-        );
-      })
-      .join("");
-  }
-
   function renderRecordControls() {
     renderStars();
     renderCatField();
     renderPurchField();
-    renderChipGroup(
-      "rec-rebuy",
-      [
-        { value: "yes", label: "会回购" },
-        { value: "no", label: "不会" },
-        { value: "unsure", label: "不确定" }
-      ],
-      state.editing.repurchase,
-      "repurchase"
-    );
+    renderRepurchase();
     renderPhoto();
+  }
+
+  function renderRepurchase() {
+    var el = document.getElementById("rec-rebuy");
+    if (!el) return;
+    var opts = [
+      { value: "yes", emoji: "👍", label: "会回购" },
+      { value: "no", emoji: "👎", label: "不会" },
+      { value: "unsure", emoji: "🤔", label: "不确定" }
+    ];
+    el.innerHTML = opts
+      .map(function (o) {
+        return (
+          '<button type="button" class="seg ' +
+          (state.editing.repurchase === o.value ? "on" : "") +
+          '" data-action="chip" data-key="repurchase" data-value="' +
+          o.value +
+          '">' +
+          '<span class="seg-emoji" aria-hidden="true">' +
+          o.emoji +
+          "</span><span>" +
+          o.label +
+          "</span></button>"
+        );
+      })
+      .join("");
   }
 
   function renderCatField() {
@@ -1672,16 +1683,7 @@
       if (state.editing) {
         state.editing[key] = value;
         if (key === "repurchase")
-          renderChipGroup(
-            "rec-rebuy",
-            [
-              { value: "yes", label: "会回购" },
-              { value: "no", label: "不会" },
-              { value: "unsure", label: "不确定" }
-            ],
-            state.editing.repurchase,
-            "repurchase"
-          );
+          renderRepurchase();
       }
       return;
     }
