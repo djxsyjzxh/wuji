@@ -2199,7 +2199,7 @@
       return;
     }
     var s = document.createElement("script");
-    s.src = "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js";
+    s.src = "libs/zxing.min.js";
     s.onload = function () {
       if (window.ZXing) startZxing(video);
       else if (tip) tip.textContent = "识别组件加载失败，可手动输入条码";
