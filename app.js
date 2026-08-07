@@ -404,7 +404,9 @@
     options.headers = Object.assign(
       {
         apikey: CLOUD_ANON,
-        Authorization: "Bearer " + CLOUD_ANON
+        Authorization: authed()
+          ? "Bearer " + state.session.access_token
+          : "Bearer " + CLOUD_ANON
       },
       options.headers || {}
     );
