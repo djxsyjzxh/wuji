@@ -75,6 +75,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        if rel.lower().endswith(".webmanifest"):
+            ctype = "application/manifest+json"
         with open(full, "rb") as f:
             data = f.read()
         self.send_response(200)
