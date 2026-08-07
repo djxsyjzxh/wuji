@@ -1278,6 +1278,7 @@
     if (info.category) state.editing.category = info.category;
     if (info.emoji) state.editing.emoji = info.emoji;
     if (info.photo) state.editing.photo = info.photo;
+    if (info.price != null && info.price !== "") state.editing.price = info.price;
   }
 
   function handleBarcode(raw) {
@@ -1296,9 +1297,51 @@
       return;
     }
     toast("正在查询商品信息…");
+    var code = state.editing.barcode;
     fetch(
+      "https://v1.apizero.cn/api/barcode-lookup?barcode=" +
+        encodeURIComponent(code)
+    )
+      .then(function (res) {
+        if (!res.ok) throw new Error("api-zero status " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var d = data && data.data;
+        if (data && data.code === 0 && d && d.found && (d.name || d.brand)) {
+          var info = {
+            name: d.name || d.brand || "商品 " + code,
+            brand: d.brand || "",
+            category: d.category || "",
+            emoji: "📦",
+            price: d.price != null && d.price !== "" ? d.price : "",
+            photo: d.image || null
+          };
+          if (
+            d.name &&
+            d.spec &&
+            d.name.indexOf(String(d.spec)) < 0
+          ) {
+            info.name = info.name + " " + d.spec;
+          }
+          state.barcodeCache[code] = info;
+          saveBarcodeCache();
+          fillFromInfo(info);
+          toast("已识别：" + info.name);
+          location.hash = "#/record";
+          return;
+        }
+        return lookupOpenFoodFacts(code);
+      })
+      .catch(function () {
+        return lookupOpenFoodFacts(code);
+      });
+  }
+
+  function lookupOpenFoodFacts(code) {
+    return fetch(
       "https://world.openfoodfacts.org/api/v2/product/" +
-        encodeURIComponent(state.editing.barcode) +
+        encodeURIComponent(code) +
         ".json"
     )
       .then(function (res) {
@@ -1313,23 +1356,24 @@
               p.product_name ||
               p.generic_name_zh ||
               p.generic_name ||
-              "商品 " + state.editing.barcode,
+              "商品 " + code,
             brand: p.brands || "",
             category: "",
             emoji: "📦",
             photo: p.image_front_url || p.image_url || null
           };
-          state.barcodeCache[state.editing.barcode] = info;
+          state.barcodeCache[code] = info;
           saveBarcodeCache();
           fillFromInfo(info);
           toast("已识别：" + info.name);
         } else {
-          state.barcodeCache[state.editing.barcode] = {
+          state.barcodeCache[code] = {
             name: "",
             brand: "",
             category: "",
             emoji: "📦",
             photo: null,
+            price: "",
             unknown: true
           };
           saveBarcodeCache();
@@ -1361,7 +1405,8 @@
         brand: e.brand || "",
         category: e.category || "",
         emoji: e.emoji || "📦",
-        photo: e.photo || null
+        photo: e.photo || null,
+        price: e.price == null || e.price === "" ? "" : e.price
       };
       saveBarcodeCache();
     }
