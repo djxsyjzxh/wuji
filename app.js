@@ -524,18 +524,23 @@
       monthPrefix().replace("-", " 年 ") +
       " 月概览</span>" +
       '<button class="link-btn" data-action="goto" data-to="#/review">看复盘 ›</button></div>' +
-      '<div class="nums">' +
+      '<div class="ov-stats">' +
+      '<div class="ov-stat"><div class="ov-num">' +
       m.count +
-      " 件 · 均分 <em>" +
+      '</div><div class="ov-label">本月记录</div></div>' +
+      '<div class="ov-stat"><div class="ov-num">' +
       (m.avg ? m.avg.toFixed(1) : "—") +
-      "</em> · 回购 <em>" +
+      '</div><div class="ov-label">平均评分</div></div>' +
+      '<div class="ov-stat"><div class="ov-num">' +
       Math.round(m.repurchaseRate * 100) +
-      "%</em></div>" +
-      '<div class="note">本月记录 ' +
+      '%</div><div class="ov-label">回购率</div></div>' +
+      '<div class="ov-stat"><div class="ov-num">' +
+      (m.totalSpend ? "¥" + fmtMoney(m.totalSpend) : "—") +
+      '</div><div class="ov-label">本月花费</div></div>' +
+      "</div>" +
+      '<div class="note">本月记录了 ' +
       m.activeDays +
-      " 天" +
-      (m.totalSpend ? " · 花费 ¥" + fmtMoney(m.totalSpend) : "") +
-      "</div></div>" +
+      " 天</div></div>" +
       '<div class="section">最近记录</div>' +
       '<div class="card">' +
       (recs.length

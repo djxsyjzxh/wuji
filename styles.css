@@ -130,29 +130,46 @@ button {
   background: var(--accent-soft);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 14px;
+  padding: 16px;
 }
 
 .overview-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 14px;
 }
 
-.overview .nums {
-  font-size: 22px;
-  font-weight: 600;
-  margin: 6px 0 2px;
+.ov-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 12px;
 }
 
-.overview .nums em {
-  font-style: normal;
-  color: var(--accent);
+.ov-stat {
+  text-align: center;
+}
+
+.ov-num {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.ov-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 5px;
 }
 
 .overview .note {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
+  text-align: center;
+  margin-top: 14px;
 }
 
 .chips {
