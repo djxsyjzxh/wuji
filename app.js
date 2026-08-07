@@ -5,6 +5,7 @@
   var LS_PROFILE = "wuji.profile.v1";
   var LS_SEEDED = "wuji.seeded.v1";
   var LS_BARCODE = "wuji.barcode.v1";
+  var LS_SESSION = "wuji.session.v1";
 
   var REPURCHASE_META = {
     yes: "会回购",
@@ -94,7 +95,9 @@
 
   var state = {
     records: [],
-    profile: { name: "小禾" },
+    profile: { name: "物友", phone: "" },
+    session: null,
+    authMode: "login",
     editing: null,
     barcodeCache: {},
     lastTab: "home",
@@ -261,16 +264,137 @@
     typeof WUJI_SUPABASE_URL !== "undefined" ? WUJI_SUPABASE_URL : "";
   var CLOUD_ANON =
     typeof WUJI_SUPABASE_ANON !== "undefined" ? WUJI_SUPABASE_ANON : "";
-  var CLOUD_OWNER =
-    typeof WUJI_OWNER_ID !== "undefined" ? WUJI_OWNER_ID : "";
 
   function cloudEnabled() {
     return !!(
       CLOUD_URL &&
       CLOUD_ANON &&
-      CLOUD_OWNER &&
+      authed() &&
       typeof fetch === "function"
     );
+  }
+
+  function currentOwner() {
+    return state.session && state.session.user
+      ? state.session.user.id
+      : "";
+  }
+
+  function authApi(path, options) {
+    options = options || {};
+    options.headers = Object.assign(
+      {
+        apikey: CLOUD_ANON,
+        Authorization: "Bearer " + CLOUD_ANON,
+        "Content-Type": "application/json"
+      },
+      options.headers || {}
+    );
+    return fetch(CLOUD_URL + "/auth/v1" + path, options);
+  }
+
+  function phoneToEmail(phone) {
+    return phone + "@wuji.local";
+  }
+
+  function phoneMask(p) {
+    return p && p.length >= 7 ? p.slice(0, 3) + "****" + p.slice(7) : p || "";
+  }
+
+  function saveSession() {
+    try {
+      localStorage.setItem(LS_SESSION, JSON.stringify(state.session));
+    } catch (e) {}
+  }
+
+  function restoreSession() {
+    try {
+      var s = JSON.parse(localStorage.getItem(LS_SESSION));
+      if (s && s.access_token && s.user) state.session = s;
+    } catch (e) {
+      state.session = null;
+    }
+  }
+
+  function clearSession() {
+    state.session = null;
+    try {
+      localStorage.removeItem(LS_SESSION);
+    } catch (e) {}
+  }
+
+  function authed() {
+    return !!(state.session && state.session.access_token);
+  }
+
+  function signUp(phone, password, nickname) {
+    return authApi("/signup", {
+      method: "POST",
+      body: JSON.stringify({
+        email: phoneToEmail(phone),
+        password: password,
+        data: { nickname: nickname }
+      })
+    }).then(function (res) {
+      return res.json().then(function (d) {
+        return { ok: res.ok, status: res.status, data: d };
+      });
+    });
+  }
+
+  function signIn(phone, password) {
+    return authApi("/token?grant_type=password", {
+      method: "POST",
+      body: JSON.stringify({
+        email: phoneToEmail(phone),
+        password: password
+      })
+    }).then(function (res) {
+      return res.json().then(function (d) {
+        return { ok: res.ok, status: res.status, data: d };
+      });
+    });
+  }
+
+  function refreshSession() {
+    if (!state.session || !state.session.refresh_token) {
+      return Promise.resolve(false);
+    }
+    return authApi("/token?grant_type=refresh_token", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: state.session.refresh_token })
+    })
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (d) {
+        if (d.access_token) {
+          state.session.access_token = d.access_token;
+          state.session.refresh_token = d.refresh_token || state.session.refresh_token;
+          state.session.expires_at =
+            Date.now() + (d.expires_in || 3600) * 1000;
+          saveSession();
+          return true;
+        }
+        return false;
+      })
+      .catch(function () {
+        return false;
+      });
+  }
+
+  function signOut() {
+    if (authed()) {
+      authApi("/logout", {
+        method: "POST",
+        headers: {
+          apikey: CLOUD_ANON,
+          Authorization: "Bearer " + state.session.access_token
+        }
+      }).catch(function () {});
+    }
+    clearSession();
+    showLogin();
   }
 
   function cloudApi(path, options) {
@@ -288,7 +412,7 @@
   function recordToRow(r) {
     return {
       id: r.id,
-      owner: CLOUD_OWNER,
+      owner: currentOwner(),
       name: r.name || "",
       brand: r.brand || "",
       emoji: r.emoji || "📦",
@@ -335,7 +459,7 @@
   function fetchCloudRecords() {
     return cloudApi(
       "/records?select=*&owner=eq." +
-        encodeURIComponent(CLOUD_OWNER) +
+        encodeURIComponent(currentOwner()) +
         "&order=createdat.asc"
     ).then(function (res) {
       if (!res.ok) throw new Error("cloud " + res.status);
@@ -361,7 +485,7 @@
       "/records?id=eq." +
         encodeURIComponent(id) +
         "&owner=eq." +
-        encodeURIComponent(CLOUD_OWNER),
+        encodeURIComponent(currentOwner()),
       { method: "DELETE" }
     ).catch(function () {});
   }
@@ -369,9 +493,46 @@
   function clearCloudRecords() {
     if (!cloudEnabled()) return Promise.resolve();
     return cloudApi(
-      "/records?owner=eq." + encodeURIComponent(CLOUD_OWNER),
+      "/records?owner=eq." + encodeURIComponent(currentOwner()),
       { method: "DELETE" }
     ).catch(function () {});
+  }
+
+  function loadProfileFromCloud() {
+    if (!cloudEnabled()) return;
+    cloudApi(
+      "/profiles?select=*&uid=eq." + encodeURIComponent(currentOwner())
+    )
+      .then(function (res) {
+        return res.ok ? res.json() : [];
+      })
+      .then(function (rows) {
+        if (rows && rows[0] && rows[0].nickname) {
+          state.profile.name = rows[0].nickname;
+          state.profile.phone = rows[0].phone || state.session.user.phone;
+          saveProfile();
+          if (parseHash().path === "profile") route();
+        }
+      })
+      .catch(function () {});
+  }
+
+  function upsertProfileToCloud() {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi("/profiles?on_conflict=uid", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([
+        {
+          uid: currentOwner(),
+          phone: state.session.user.phone || "",
+          nickname: state.profile.name || "物友"
+        }
+      ])
+    }).catch(function () {});
   }
 
   function syncFromCloud() {
@@ -416,8 +577,127 @@
       });
   }
 
+  function renderLogin() {
+    return (
+      '<div class="auth-wrap">' +
+      '<div class="auth-logo" aria-hidden="true">📦</div>' +
+      '<div class="auth-title">物记</div>' +
+      '<div class="auth-sub">用过才懂 · 记录每一件物品</div>' +
+      '<div class="auth-tabs">' +
+      '<button type="button" class="auth-tab ' +
+      (state.authMode === "login" ? "on" : "") +
+      '" data-action="auth-mode" data-value="login">登录</button>' +
+      '<button type="button" class="auth-tab ' +
+      (state.authMode === "register" ? "on" : "") +
+      '" data-action="auth-mode" data-value="register">注册</button>' +
+      "</div>" +
+      '<div class="card auth-card">' +
+      '<div class="auth-field" id="auth-nick-field" style="' +
+      (state.authMode === "register" ? "" : "display:none;") +
+      '">' +
+      '<label class="label" for="auth-nick">昵称</label>' +
+      '<input class="input" id="auth-nick" maxlength="12" placeholder="给自己起个名字（可留空）">' +
+      "</div>" +
+      '<label class="label" for="auth-phone">手机号</label>' +
+      '<input class="input" id="auth-phone" inputmode="numeric" maxlength="11" placeholder="请输入 11 位手机号">' +
+      '<label class="label" for="auth-pass">密码</label>' +
+      '<input class="input" id="auth-pass" type="password" maxlength="32" placeholder="至少 6 位">' +
+      '<button class="btn btn-primary" id="auth-submit" data-action="auth-submit">' +
+      (state.authMode === "register" ? "注册并进入" : "登 录") +
+      "</button>" +
+      '<div class="hint" style="margin-top:14px;">数据加密保存在云端，换设备登录同一账号即可同步</div>' +
+      "</div></div>"
+    );
+  }
+
+  function showLogin() {
+    document.body.classList.add("guest");
+    view.innerHTML = renderLogin();
+  }
+
+  function enterApp() {
+    document.body.classList.remove("guest");
+    state.cloudOk = false;
+    loadProfileFromCloud();
+    route();
+    syncFromCloud();
+  }
+
+  function setAuthMode(mode) {
+    state.authMode = mode === "register" ? "register" : "login";
+    view.innerHTML = renderLogin();
+  }
+
+  function submitAuth() {
+    var phoneEl = document.getElementById("auth-phone");
+    var passEl = document.getElementById("auth-pass");
+    var nickEl = document.getElementById("auth-nick");
+    var phone = phoneEl ? String(phoneEl.value || "").trim() : "";
+    var pass = passEl ? passEl.value || "" : "";
+    var nick = nickEl ? String(nickEl.value || "").trim() : "";
+    if (!/^1\d{10}$/.test(phone)) {
+      toast("请输入正确的 11 位手机号");
+      return;
+    }
+    if (pass.length < 6) {
+      toast("密码至少 6 位");
+      return;
+    }
+    var btn = document.getElementById("auth-submit");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "请稍候…";
+    }
+    var task =
+      state.authMode === "register"
+        ? signUp(phone, pass, nick || "物友")
+        : signIn(phone, pass);
+    task
+      .then(function (r) {
+        if (btn) btn.disabled = false;
+        var d = r.data || {};
+        if (r.ok && d.access_token) {
+          state.session = {
+            access_token: d.access_token,
+            refresh_token: d.refresh_token || "",
+            expires_at: Date.now() + (d.expires_in || 3600) * 1000,
+            user: {
+              id: d.user ? d.user.id : "",
+              phone: phone
+            }
+          };
+          state.profile.name = nick || state.profile.name || "物友";
+          state.profile.phone = phone;
+          saveProfile();
+          saveSession();
+          enterApp();
+          toast(state.authMode === "register" ? "注册成功，欢迎使用" : "欢迎回来");
+        } else if (r.ok && d.user && !d.access_token) {
+          toast("注册已提交，但项目开启了邮箱确认，请先在 Supabase 后台关闭");
+        } else {
+          var msg = d.error_description || d.msg || d.message || "";
+          if (!msg && r.status === 422) msg = "该手机号已注册，请直接登录";
+          toast(msg || "操作失败，请稍后再试");
+          if (state.authMode === "register" && /(already|exists|已注册|registered)/i.test(msg)) {
+            setAuthMode("login");
+          }
+        }
+      })
+      .catch(function () {
+        if (btn) btn.disabled = false;
+        toast("网络异常，请检查网络后重试");
+      });
+  }
+
   function saveProfile() {
     localStorage.setItem(LS_PROFILE, JSON.stringify(state.profile));
+  }
+
+  function syncTip() {
+    if (!cloudEnabled()) return "数据保存在这台设备浏览器里";
+    return state.cloudOk
+      ? "数据已同步到云端，换设备登录同一账号即可查看"
+      : "云端暂未连接，数据保存在本机浏览器";
   }
 
   function loadAll() {
@@ -783,17 +1063,28 @@
 
   function renderProfile() {
     var m = monthStats();
+    var phone = state.profile.phone || (state.session ? state.session.user.phone : "");
     return (
       '<div class="head"><div><div class="page-title">我的</div>' +
       '<div class="sub">' +
       esc(state.profile.name) +
+      " · " +
+      phoneMask(phone) +
       " · 共记录 " +
       state.records.length +
       " 件 · 连续 " +
       streakDays() +
       " 天</div></div>" +
-      '<div class="avatar" aria-hidden="true">' +
-      esc((state.profile.name || "禾").charAt(0)) +
+      '<button class="link-btn" data-action="logout">退出登录</button></div>' +
+      '<div class="avatar-block">' +
+      '<div class="avatar avatar-lg" aria-hidden="true">' +
+      esc((state.profile.name || "物").charAt(0)) +
+      "</div>" +
+      '<div class="avatar-name">' +
+      esc(state.profile.name) +
+      "</div>" +
+      '<div class="avatar-phone">' +
+      phoneMask(phone) +
       "</div></div>" +
       '<div class="card">' +
       '<label class="label" for="profile-name">昵称</label>' +
@@ -822,11 +1113,7 @@
       '<span class="row-main"><span class="row-name" style="color:var(--danger);">清空全部记录</span><span class="row-meta">不可恢复，请先导出</span></span><span>›</span></button>' +
       "</div>" +
       '<div class="hint" style="margin-top:18px;">' +
-      (!cloudEnabled()
-        ? "数据保存在这台设备浏览器里"
-        : state.cloudOk
-          ? "数据已同步到云端，换设备打开同一页面即可查看"
-          : "云端暂未连接，数据保存在本机浏览器") +
+      syncTip() +
       "</div>"
     );
   }
@@ -1435,6 +1722,10 @@
   };
 
   function route() {
+    if (!authed()) {
+      showLogin();
+      return;
+    }
     stopScanner();
     closeSheets();
     var r = parseHash();
@@ -1792,6 +2083,18 @@
       location.hash = el.getAttribute("data-to");
       return;
     }
+    if (action === "auth-mode") {
+      setAuthMode(value);
+      return;
+    }
+    if (action === "auth-submit") {
+      submitAuth();
+      return;
+    }
+    if (action === "logout") {
+      signOut();
+      return;
+    }
     if (action === "new-record") {
       newRecord();
       location.hash = "#/record";
@@ -1972,9 +2275,10 @@
     if (action === "save-profile") {
       var nameEl = document.getElementById("profile-name");
       var name = nameEl ? nameEl.value.trim() : "";
-      if (!name) name = "小禾";
+      if (!name) name = "物友";
       state.profile.name = name;
       saveProfile();
+      upsertProfileToCloud();
       toast("已保存");
       route();
       return;
@@ -2051,6 +2355,18 @@
   window.addEventListener("hashchange", route);
 
   loadAll();
-  route();
-  syncFromCloud();
+  restoreSession();
+  if (!authed()) {
+    showLogin();
+  } else if (
+    state.session.expires_at &&
+    Date.now() > state.session.expires_at
+  ) {
+    refreshSession().then(function (ok) {
+      if (ok) enterApp();
+      else showLogin();
+    });
+  } else {
+    enterApp();
+  }
 })();
