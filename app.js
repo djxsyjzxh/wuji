@@ -889,6 +889,10 @@
   }
 
   function itemRow(r, href) {
+    var cat = r.category
+      ? r.category +
+        (r.subcategory && r.subcategory !== "其他" ? " · " + r.subcategory : "")
+      : "";
     return (
       '<a class="row" href="' +
       href +
@@ -900,6 +904,7 @@
       '<span class="row-name">' +
       esc(r.name) +
       "</span>" +
+      (cat ? '<span class="row-meta">' + esc(cat) + "</span>" : "") +
       "</span>" +
       '<span style="text-align:right;flex:none;">' +
       (r.rating ? starText(r.rating) : "") +
@@ -908,9 +913,6 @@
           esc(fmtMoney(r.price)) +
           "</span>"
         : "") +
-      '<span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">' +
-      esc(fmtDate(r.updatedAt || r.createdAt)) +
-      "</span>" +
       "</span>" +
       "</a>"
     );
@@ -1044,10 +1046,11 @@
       pad(d.getMonth() + 1) +
       "-" +
       pad(d.getDate());
-    if (s === todayStr()) return "今天";
+    var week = "周" + "日一二三四五六".charAt(d.getDay());
+    if (s === todayStr()) return "今天 · " + week;
     if (s === new Date(Date.now() - dayMs()).toISOString().slice(0, 10))
-      return "昨天";
-    return d.getMonth() + 1 + "月" + d.getDate() + "日";
+      return "昨天 · " + week;
+    return d.getMonth() + 1 + "月" + d.getDate() + "日 · " + week;
   }
 
   function homeRecentHtml(recs) {
