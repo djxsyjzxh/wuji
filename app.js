@@ -1401,7 +1401,7 @@
     return (
       '<div class="head"><div><div class="page-title">我的</div>' +
       '<div class="sub">' +
-      (loggedIn ? esc(state.profile.name) + " · " : "未登录 · ") +
+      (loggedIn ? "" : "未登录 · ") +
       "共记录 " +
       state.records.length +
       " 件 · 连续 " +
@@ -1430,7 +1430,7 @@
             '<div class="hint" style="margin-top:6px;">回车或点保存确认</div>'
           : '<button class="avatar-name" data-action="edit-nick">' +
             esc(state.profile.name) +
-            '<span class="nick-edit-hint">✎ 点击修改昵称</span></button>'
+            "</button>"
         : '<div class="avatar-name">未登录</div>' +
           '<div class="avatar-phone">登录后记录自动同步到云端</div>') +
       "</div>" +
