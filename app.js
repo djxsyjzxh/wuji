@@ -499,14 +499,6 @@
     ).catch(function () {});
   }
 
-  function clearCloudRecords() {
-    if (!cloudEnabled()) return Promise.resolve();
-    return cloudApi(
-      "/records?owner=eq." + encodeURIComponent(currentOwner()),
-      { method: "DELETE" }
-    ).catch(function () {});
-  }
-
   function loadProfileFromCloud() {
     if (!cloudEnabled()) return;
     cloudApi(
@@ -1217,12 +1209,6 @@
       '<button class="row" data-action="export" style="cursor:pointer;">' +
       '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">⬇️</span>' +
       '<span class="row-main"><span class="row-name">导出我的数据</span><span class="row-meta">下载 JSON 文件</span></span><span>›</span></button>' +
-      '<button class="row" data-action="reset-demo" style="cursor:pointer;">' +
-      '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">🔄</span>' +
-      '<span class="row-main"><span class="row-name">重置演示数据</span><span class="row-meta">恢复示例记录</span></span><span>›</span></button>' +
-      '<button class="row" data-action="clear-all" style="cursor:pointer;">' +
-      '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">🗑️</span>' +
-      '<span class="row-main"><span class="row-name" style="color:var(--danger);">清空全部记录</span><span class="row-meta">不可恢复，请先导出</span></span><span>›</span></button>' +
       "</div>" +
       '<div class="hint" style="margin-top:18px;">' +
       (loggedIn ? syncTip() : "未登录：数据只保存在本机浏览器，登录后自动同步到云端") +
@@ -2419,28 +2405,6 @@
       a.click();
       document.body.removeChild(a);
       toast("已导出");
-      return;
-    }
-    if (action === "reset-demo") {
-      if (confirm("确定恢复示例数据吗？当前记录会被覆盖。")) {
-        state.records = wujiSeedRecords();
-        saveRecords();
-        state.records.forEach(function (r) {
-          upsertRecordToCloud(r);
-        });
-        toast("已恢复示例数据");
-        route();
-      }
-      return;
-    }
-    if (action === "clear-all") {
-      if (confirm("确定清空全部记录吗？此操作不可恢复，建议先导出数据。")) {
-        state.records = [];
-        saveRecords();
-        clearCloudRecords();
-        toast("已清空");
-        route();
-      }
       return;
     }
   });
