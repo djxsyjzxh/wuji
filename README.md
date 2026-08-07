@@ -11,7 +11,7 @@
 任选一种方式：
 
 - 直接双击 `index.html` 用浏览器打开；
-- 在项目文件夹打开命令行，运行 `python -m http.server 8000`，然后浏览器访问 `http://localhost:8000`；
+- 在项目文件夹打开命令行，运行 `python server.py`（需要 Python 3），然后浏览器访问 `http://localhost:8000`；条码查询通过本地服务转发（API Key 只保存在本机 `.env.local`，不会暴露给浏览器）；
 - 或者把整个文件夹放到任意网站服务器上，手机也能访问。
 
 ## 目前有的功能

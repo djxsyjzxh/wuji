@@ -1476,15 +1476,7 @@
     }
     toast("正在查询商品信息…");
     var code = state.editing.barcode;
-    var apiUrl =
-      "https://v1.apizero.cn/api/barcode-lookup?barcode=" +
-      encodeURIComponent(code);
-    if (
-      typeof WUJI_APIZERO_KEY !== "undefined" &&
-      WUJI_APIZERO_KEY
-    ) {
-      apiUrl += "&key=" + encodeURIComponent(WUJI_APIZERO_KEY);
-    }
+    var apiUrl = "/api/barcode-lookup?barcode=" + encodeURIComponent(code);
     fetch(apiUrl)
       .then(function (res) {
         if (!res.ok) throw new Error("api-zero status " + res.status);
