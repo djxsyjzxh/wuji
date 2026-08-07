@@ -183,6 +183,12 @@
     return r.category;
   }
 
+  function recordEmoji(r) {
+    if (!r) return "📦";
+    if (r.emoji && r.emoji !== "📦") return r.emoji;
+    return (r.category && CATEGORY_EMOJI[r.category]) || r.emoji || "📦";
+  }
+
   function itemKey(r) {
     return (
       (r.name || "").trim() +
@@ -909,7 +915,7 @@
       href +
       '">' +
       '<span class="thumb" aria-hidden="true">' +
-      esc(r.emoji || "📦") +
+      esc(recordEmoji(r)) +
       "</span>" +
       '<span class="row-main">' +
       '<span class="row-name">' +
@@ -1236,7 +1242,7 @@
           esc(g.key) +
           '">' +
           '<span class="thumb" aria-hidden="true">' +
-          esc(latest.emoji || "📦") +
+          esc(recordEmoji(latest)) +
           "</span>" +
           '<span class="row-main">' +
           '<span class="row-name">' +
@@ -1810,7 +1816,7 @@
             r.photo +
             '" alt="物品照片" style="width:100%;height:100%;border-radius:16px;object-fit:cover;"></button>'
           : '<div class="big-thumb" aria-hidden="true">' +
-            esc(r.emoji || "📦") +
+            esc(recordEmoji(r)) +
             "</div>") +
         '<div style="margin-top:12px;"><div style="font-size:18px;font-weight:600;">' +
         esc(r.name) +
@@ -1941,7 +1947,7 @@
           '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;">🏆 本月最佳</div>' +
           '<div class="row" style="cursor:default;">' +
           '<span class="thumb" aria-hidden="true">' +
-          esc(m.best.emoji || "📦") +
+          esc(recordEmoji(m.best)) +
           "</span>" +
           '<span class="row-main"><span class="row-name">' +
           esc(m.best.name) +
@@ -1955,7 +1961,7 @@
             ? '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-top:10px;">💣 本月踩雷</div>' +
               '<div class="row" style="cursor:default;">' +
               '<span class="thumb" aria-hidden="true">' +
-              esc(m.worst.emoji || "📦") +
+              esc(recordEmoji(m.worst)) +
               "</span>" +
               '<span class="row-main"><span class="row-name">' +
               esc(m.worst.name) +
@@ -2524,6 +2530,7 @@
       if (state.editing) {
         state.editing.category = value;
         state.editing.subcategory = "";
+        state.editing.emoji = CATEGORY_EMOJI[value] || "📦";
         renderCatSheet();
         renderCatField();
       }
