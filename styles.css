@@ -584,6 +584,17 @@ button {
   margin-top: 4px;
 }
 
+.stars-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.stars-line .stars-ico {
+  margin-top: 0;
+}
+
 .star-ico {
   color: var(--surface-2);
   font-size: 12px;
@@ -597,7 +608,7 @@ button {
 .row-score {
   font-size: 12px;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .row-price {

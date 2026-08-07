@@ -222,7 +222,6 @@
   }
 
   function purchaseRow(r, i) {
-    var pl = purchaseLabel(r);
     return (
       '<a class="row purchase-row" href="#/detail/r-' +
       r.id +
@@ -234,11 +233,7 @@
       '<span class="purchase-date">' +
       esc(fmtDate(r.createdAt)) +
       "</span>" +
-      '<span class="purchase-meta">' +
-      (pl
-        ? '<span class="mini-tag">' + esc(pl) + "</span>"
-        : "") +
-      "</span>" +
+      (r.rating ? starsLine(r.rating) : "") +
       "</span>" +
       '<span class="purchase-side">' +
       (r.price != null
@@ -246,7 +241,6 @@
           esc(fmtMoney(r.price)) +
           "</span>"
         : "") +
-      (r.rating ? starText(r.rating) : "") +
       "</span>" +
       "</a>"
     );
@@ -905,10 +899,7 @@
       esc(r.name) +
       "</span>" +
       (cat ? '<span class="row-meta">' + esc(cat) + "</span>" : "") +
-      (r.rating
-        ? '<span class="row-score">' + esc(r.rating) + " 分</span>" +
-          starIcons(r.rating)
-        : "") +
+      (r.rating ? starsLine(r.rating) : "") +
       "</span>" +
       '<span class="row-price">' +
       (r.price != null ? "¥" + esc(fmtMoney(r.price)) : "") +
@@ -927,6 +918,16 @@
         '" aria-hidden="true">★</span>';
     }
     return '<span class="stars-ico">' + html + "</span>";
+  }
+
+  function starsLine(v) {
+    return (
+      '<span class="stars-line">' +
+      starIcons(v) +
+      '<span class="row-score">' +
+      esc(v) +
+      "</span></span>"
+    );
   }
 
   function communityCard(c) {
@@ -1209,14 +1210,9 @@
       .map(function (g) {
         var latest = g.list[g.list.length - 1];
         var expanded = !!state.expandedItems[g.key];
-        var pl = purchaseLabel(latest);
-        var price = latest.price != null ? fmtMoney(latest.price) : "";
         var rating = latest.rating || 0;
         var repHigh = g.list.length >= 2;
-        var repLow =
-          !repHigh &&
-          rating > 0 &&
-          rating <= 2;
+        var repLow = !repHigh && rating > 0 && rating <= 2;
         return (
           '<div class="card item-card">' +
           '<div class="item-head" data-action="toggle-items" data-key="' +
@@ -1230,13 +1226,6 @@
           esc(latest.name) +
           "</span>" +
           '<span class="item-kv">' +
-          (price
-            ? '<span class="item-price">¥' + esc(price) + "</span>"
-            : "") +
-          (rating
-            ? '<span class="stars">★ ' + esc(rating) + "</span>"
-            : "") +
-          (pl ? '<span class="mini-tag">' + esc(pl) + "</span>" : "") +
           '<span class="buy-count' +
           (repHigh ? " rep-high" : repLow ? " rep-low" : "") +
           '">已买 <b>' +
