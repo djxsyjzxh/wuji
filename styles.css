@@ -677,6 +677,11 @@ button {
   text-align: right;
 }
 
+.rec-flag {
+  font-size: 13px;
+  margin-left: 2px;
+}
+
 .tag {
   font-size: 11px;
   padding: 2px 8px;

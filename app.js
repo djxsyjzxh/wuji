@@ -526,6 +526,7 @@
       photo: r.photo || null,
       rating: r.rating || 0,
       repurchase: r.repurchase || "unsure",
+      recommend: r.recommend || "",
       category: r.category || "",
       subcategory: r.subcategory || "",
       purchasetype: r.purchaseType || null,
@@ -552,6 +553,7 @@
       photo: row.photo || null,
       rating: row.rating || 0,
       repurchase: row.repurchase || "unsure",
+      recommend: row.recommend || "",
       category: row.category || "",
       subcategory: row.subcategory || "",
       purchaseType: row.purchasetype || null,
@@ -1081,6 +1083,11 @@
       '<span class="row-name">' +
       esc(r.name) +
       "</span>" +
+      (r.recommend === "yes"
+        ? '<span class="rec-flag" aria-hidden="true">👍</span>'
+        : r.recommend === "no"
+          ? '<span class="rec-flag" aria-hidden="true">👎</span>'
+          : "") +
       (cat ? '<span class="row-meta">' + esc(cat) + "</span>" : "") +
       (r.rating ? starsLine(r.rating) : "") +
       "</span>" +
@@ -1702,6 +1709,8 @@
       "</div>" +
       '<div class="label">我的评分</div>' +
       '<div id="rec-stars"></div>' +
+      '<div class="label">推荐吗（可选）</div>' +
+      '<div class="chips" id="rec-recommend"></div>' +
       '<label class="label" for="rec-comment">一句话短评（可选）</label>' +
       '<textarea class="textarea" id="rec-comment" data-bind="comment" placeholder="比如：泡沫细腻，不假滑，会回购。">' +
       esc(e.comment || "") +
@@ -1734,6 +1743,7 @@
       purchaseChannel: null,
       rating: 0,
       repurchase: "unsure",
+      recommend: "",
       status: "using",
       comment: "",
       method: "manual"
@@ -1769,7 +1779,20 @@
     renderCatField();
     renderPurchField();
     renderExpiry();
+    renderRecommend();
     renderPhoto();
+  }
+
+  function renderRecommend() {
+    var el = document.getElementById("rec-recommend");
+    if (!el) return;
+    el.innerHTML =
+      '<button type="button" class="chip' +
+      (state.editing.recommend === "yes" ? " on" : "") +
+      '" data-action="recommend-set" data-value="yes">👍 推荐</button>' +
+      '<button type="button" class="chip' +
+      (state.editing.recommend === "no" ? " on" : "") +
+      '" data-action="recommend-set" data-value="no">👎 不推荐</button>';
   }
 
   function renderExpiry() {
@@ -2086,6 +2109,11 @@
         '<div><div class="kv-label">我的评分</div><div class="kv-value">' +
         (r.rating ? r.rating + " ★" : "未评分") +
         "</div></div>" +
+        (r.recommend
+          ? '<div><div class="kv-label">推荐</div><div class="kv-value">' +
+            (r.recommend === "yes" ? "👍 推荐" : "👎 不推荐") +
+            "</div></div>"
+          : "") +
         '<div><div class="kv-label">品类</div><div class="kv-value">' +
         esc(categoryLabel(r)) +
         "</div></div>" +
@@ -2935,6 +2963,14 @@
       }
       return;
     }
+    if (action === "recommend-set") {
+      if (state.editing) {
+        state.editing.recommend =
+          state.editing.recommend === value ? "" : value;
+        renderRecommend();
+      }
+      return;
+    }
     if (action === "save-record") {
       saveRecord();
       return;
@@ -3022,6 +3058,12 @@
           "购买渠道": r.purchaseChannel || "",
           "价格（元）": r.price == null ? "" : r.price,
           "评分": r.rating || "",
+          "推荐":
+            r.recommend === "yes"
+              ? "推荐"
+              : r.recommend === "no"
+                ? "不推荐"
+                : "",
           "购买日期": r.createdAt ? r.createdAt.slice(0, 10) : "",
           "短评": r.comment || ""
         };

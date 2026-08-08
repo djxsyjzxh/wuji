@@ -143,6 +143,7 @@ function wujiSeedRecords() {
       barcode: "6931234567890",
       photo: null,
       rating: 4,
+      recommend: "yes",
       repurchase: "yes",
       status: "finished",
       category: "护肤美妆",
