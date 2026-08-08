@@ -181,6 +181,7 @@ function wujiSeedRecords() {
       barcode: "6934567890123",
       photo: null,
       rating: 5,
+      expiryDate: new Date(now + 12 * day).toISOString().slice(0, 10),
       repurchase: "yes",
       status: "using",
       category: "家居",

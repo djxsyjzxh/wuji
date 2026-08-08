@@ -67,6 +67,14 @@
     offline: "🏬",
     gift: "🎁"
   };
+  var EXPIRY_CATS = [
+    "食品饮料",
+    "药品保健",
+    "护肤美妆",
+    "个护洗护",
+    "母婴",
+    "宠物"
+  ];
   var PURCHASE_CHANNELS = {
     online: [
       { value: "淘宝/天猫", label: "淘宝/天猫" },
@@ -187,6 +195,83 @@
     if (!r) return "📦";
     if (r.emoji && r.emoji !== "📦") return r.emoji;
     return (r.category && CATEGORY_EMOJI[r.category]) || r.emoji || "📦";
+  }
+
+  function daysLeft(expiryDate) {
+    if (!expiryDate) return null;
+    var t = new Date(expiryDate + "T00:00:00");
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.round((t - now) / dayMs());
+  }
+
+  function expiryLabel(days) {
+    if (days < 0) return "已过期";
+    if (days === 0) return "今天到期";
+    return days + " 天后";
+  }
+
+  function expiryBadgeClass(days) {
+    if (days < 0) return "gray";
+    if (days <= 7) return "red";
+    if (days <= 30) return "orange";
+    return "green";
+  }
+
+  function activeExpiryRecords() {
+    return state.records
+      .filter(function (r) {
+        return (
+          r.expiryDate &&
+          r.status !== "finished" &&
+          r.status !== "abandoned"
+        );
+      })
+      .map(function (r) {
+        return { r: r, days: daysLeft(r.expiryDate) };
+      })
+      .filter(function (x) {
+        return x.days <= 90;
+      })
+      .sort(function (a, b) {
+        return a.days - b.days;
+      });
+  }
+
+  function renderExpiryStrip() {
+    var list = activeExpiryRecords();
+    if (!list.length || !list.some(function (x) { return x.days <= 30; })) {
+      return "";
+    }
+    return (
+      '<div class="section">⏰ 临期提醒</div>' +
+      '<div class="expiry-strip">' +
+      list
+        .map(function (x) {
+          return (
+            '<a class="expiry-card" href="#/detail/r-' +
+            esc(x.r.id) +
+            '">' +
+            '<button type="button" class="expiry-done" data-action="expiry-done" data-id="' +
+            esc(x.r.id) +
+            '" aria-label="用完了">✓</button>' +
+            '<span class="expiry-emoji" aria-hidden="true">' +
+            esc(recordEmoji(x.r)) +
+            "</span>" +
+            "<b>" +
+            esc(x.r.name) +
+            "</b>" +
+            '<span class="epill ' +
+            expiryBadgeClass(x.days) +
+            '">' +
+            expiryLabel(x.days) +
+            "</span>" +
+            "</a>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
   }
 
   function itemKey(r) {
@@ -449,6 +534,7 @@
       comment: r.comment || "",
       status: r.status || "using",
       method: r.method || "manual",
+      expirydate: r.expiryDate || "",
       createdat: r.createdAt || new Date().toISOString(),
       updatedat: r.updatedAt || new Date().toISOString()
     };
@@ -472,6 +558,7 @@
       comment: row.comment || "",
       status: row.status || "using",
       method: row.method || "manual",
+      expiryDate: row.expirydate || "",
       createdAt: row.createdat,
       updatedAt: row.updatedat
     };
@@ -1131,6 +1218,7 @@
       '<div class="note">本月记录了 ' +
       m.activeDays +
       " 天</div></div>" +
+      renderExpiryStrip() +
       '<div class="section">最近记录</div>' +
       homeRecentHtml(recs) +
       '<div class="home-spacer"></div>' +
@@ -1318,6 +1406,21 @@
           esc(latest.name) +
           "</span>" +
           '<span class="item-kv">' +
+          (function () {
+            var dl =
+              latest.expiryDate &&
+              latest.status !== "finished" &&
+              latest.status !== "abandoned"
+                ? daysLeft(latest.expiryDate)
+                : null;
+            return dl != null && dl <= 30
+              ? '<span class="epill ' +
+                expiryBadgeClass(dl) +
+                '">⏰ ' +
+                expiryLabel(dl) +
+                "</span>"
+              : "";
+          })() +
           '<span class="buy-count' +
           (repHigh ? " rep-high" : repLow ? " rep-low" : "") +
           '">已买 <b>' +
@@ -1579,6 +1682,14 @@
       esc(e.price == null ? "" : e.price) +
       '">' +
       "</div>" +
+      '<div class="expiry-wrap" id="rec-expiry-wrap" style="display:none;">' +
+      '<div class="label">保质期（可选）</div>' +
+      '<input class="input" id="rec-expiry-date" type="date" data-bind="expiryDate" value="' +
+      esc(e.expiryDate || "") +
+      '">' +
+      '<div class="chips" id="rec-expiry-chips" style="margin-top:8px;"></div>' +
+      '<div class="hint" style="text-align:left;margin-top:6px;">到期前 7 天会出现在主页「临期提醒」里</div>' +
+      "</div>" +
       '<div class="label">我的评分</div>' +
       '<div id="rec-stars"></div>' +
       '<label class="label" for="rec-comment">一句话短评（可选）</label>' +
@@ -1608,6 +1719,7 @@
       barcode: "",
       photo: null,
       price: "",
+      expiryDate: "",
       purchaseType: null,
       purchaseChannel: null,
       rating: 0,
@@ -1646,7 +1758,39 @@
     renderStars();
     renderCatField();
     renderPurchField();
+    renderExpiry();
     renderPhoto();
+  }
+
+  function renderExpiry() {
+    var wrap = document.getElementById("rec-expiry-wrap");
+    if (!wrap) return;
+    var cat = state.editing.category;
+    var show = !!state.editing.expiryDate || EXPIRY_CATS.indexOf(cat) >= 0;
+    wrap.style.display = show ? "" : "none";
+    var chips = document.getElementById("rec-expiry-chips");
+    if (chips) {
+      chips.innerHTML = [
+        [7, "7 天"],
+        [30, "1 个月"],
+        [90, "3 个月"],
+        [180, "6 个月"],
+        [365, "1 年"]
+      ]
+        .map(function (o) {
+          return (
+            '<button type="button" class="chip" data-action="expiry-preset" data-days="' +
+            o[0] +
+            '">' +
+            o[1] +
+            "</button>"
+          );
+        })
+        .join("") +
+        (state.editing.expiryDate
+          ? '<button type="button" class="chip" data-action="expiry-clear">清除</button>'
+          : "");
+    }
   }
 
   function renderCatField() {
@@ -1923,7 +2067,44 @@
         '<div><div class="kv-label">记录时间</div><div class="kv-value">' +
         esc(fmtDate(r.createdAt)) +
         "</div></div>" +
+        (r.expiryDate
+          ? '<div><div class="kv-label">保质期</div><div class="kv-value">' +
+            esc(r.expiryDate) +
+            (r.status === "using"
+              ? ' <span class="tag ' +
+                expiryBadgeClass(daysLeft(r.expiryDate)) +
+                '">' +
+                expiryLabel(daysLeft(r.expiryDate)) +
+                "</span>"
+              : "") +
+            "</div></div>"
+          : "") +
         "</div>" +
+        (r.expiryDate
+          ? '<div class="label">使用状态</div>' +
+            '<div class="status-chips">' +
+            [
+              ["using", "使用中"],
+              ["finished", "已用完"],
+              ["abandoned", "已处理"]
+            ]
+              .map(function (o) {
+                return (
+                  '<button type="button" class="chip ' +
+                  (r.status === o[0] ? "on" : "") +
+                  '" data-action="set-status" data-id="' +
+                  esc(r.id) +
+                  '" data-value="' +
+                  o[0] +
+                  '">' +
+                  o[1] +
+                  "</button>"
+                );
+              })
+              .join("") +
+            "</div>" +
+            '<div class="hint" style="text-align:left;margin-top:6px;">标记「已用完」后不再进入临期提醒</div>'
+          : "") +
         (r.comment
           ? '<div class="label">我的短评</div><div class="quote">' +
             esc(r.comment) +
@@ -2606,6 +2787,7 @@
         state.editing.emoji = CATEGORY_EMOJI[value] || "📦";
         renderCatSheet();
         renderCatField();
+        renderExpiry();
       }
       return;
     }
@@ -2661,6 +2843,62 @@
       return;
     }
     if (action === "sheet-noop") {
+      return;
+    }
+    if (action === "expiry-preset") {
+      if (!state.editing) return;
+      var days = Number(el.getAttribute("data-days")) || 7;
+      var d = new Date();
+      d.setDate(d.getDate() + days);
+      var pad2 = function (n) {
+        return String(n).padStart(2, "0");
+      };
+      var val =
+        d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+      state.editing.expiryDate = val;
+      var dateEl = document.getElementById("rec-expiry-date");
+      if (dateEl) dateEl.value = val;
+      renderExpiry();
+      return;
+    }
+    if (action === "expiry-clear") {
+      if (state.editing) {
+        state.editing.expiryDate = "";
+        var dateEl2 = document.getElementById("rec-expiry-date");
+        if (dateEl2) dateEl2.value = "";
+        renderExpiry();
+      }
+      return;
+    }
+    if (action === "expiry-done") {
+      ev.preventDefault();
+      var eid = el.getAttribute("data-id");
+      var erec = state.records.find(function (r) {
+        return r.id === eid;
+      });
+      if (erec) {
+        erec.status = "finished";
+        erec.updatedAt = new Date().toISOString();
+        saveRecords();
+        upsertRecordToCloud(erec);
+        route();
+        toast("已标记用完");
+      }
+      return;
+    }
+    if (action === "set-status") {
+      var sid = el.getAttribute("data-id");
+      var srec = state.records.find(function (r) {
+        return r.id === sid;
+      });
+      if (srec) {
+        srec.status = value || "using";
+        srec.updatedAt = new Date().toISOString();
+        saveRecords();
+        upsertRecordToCloud(srec);
+        route();
+        toast("状态已更新");
+      }
       return;
     }
     if (action === "save-record") {

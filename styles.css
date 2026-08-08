@@ -940,6 +940,102 @@ button {
   box-shadow: var(--shadow);
 }
 
+.expiry-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 16px 4px;
+  margin-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.expiry-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.expiry-card {
+  flex: none;
+  width: 104px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  position: relative;
+  display: block;
+  color: var(--text);
+}
+
+.expiry-card .expiry-done {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expiry-card .expiry-emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.expiry-card b {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  margin: 7px 0 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epill {
+  font-size: 10px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.epill.red {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.epill.orange {
+  background: rgba(217, 154, 61, 0.16);
+  color: #b47d1f;
+}
+
+.epill.green {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.epill.gray {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.status-chips {
+  display: flex;
+  gap: 8px;
+}
+
+.status-chips .chip {
+  flex: 1;
+  justify-content: center;
+}
+
 .btn {
   display: block;
   width: 100%;
