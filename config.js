@@ -4,4 +4,4 @@ var WUJI_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 // 高德地图 Key（免费申请：高德开放平台 → 应用管理 → 创建应用 → Web端(JS API)）
 var WUJI_AMAP_KEY = "92877918016c72bcadc15cbfcd5827cc";
 // 高德地图安全密钥（jscode，Key 开启安全密钥时需要）
-var WUJI_AMAP_JSCODE = "";
+var WUJI_AMAP_JSCODE = "ce0487816e76a201551599ea803a1d9f";
