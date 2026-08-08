@@ -2034,6 +2034,39 @@
   }
 
   var storeLocResults = null;
+  var userLoc = null;
+  var locUsedForSearch = false;
+
+  function fmtDist(m) {
+    if (m == null || isNaN(m)) return "";
+    if (m < 1000) return Math.round(m) + " 米";
+    return (m / 1000).toFixed(1) + " 公里";
+  }
+
+  function getUserLoc(cb) {
+    if (userLoc) {
+      cb(userLoc);
+      return;
+    }
+    if (!navigator.geolocation) {
+      cb(null);
+      return;
+    }
+    toast("正在定位，请允许位置权限");
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        userLoc = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        };
+        cb(userLoc);
+      },
+      function () {
+        cb(null);
+      },
+      { timeout: 8000, maximumAge: 600000 }
+    );
+  }
 
   function storeMapLink(s) {
     if (!s || s.latitude == null || s.longitude == null) return "";
@@ -2120,22 +2153,31 @@
         toast("请输入要搜索的地点或店铺");
         return;
       }
-      var place = new AMap.PlaceSearch({
-        pageSize: 5,
-        pageIndex: 1,
-        city: "",
-        citylimit: false
-      });
-      place.search(keyword, function (status, result) {
-        if (
-          status === "complete" &&
-          result.poiList &&
-          result.poiList.pois.length
-        ) {
-          storeLocResults = result.poiList.pois;
-          renderStoreLocResults();
+      getUserLoc(function (loc) {
+        var place = new AMap.PlaceSearch({
+          pageSize: 10,
+          pageIndex: 1,
+          city: "",
+          citylimit: false
+        });
+        var done = function (status, result) {
+          if (
+            status === "complete" &&
+            result.poiList &&
+            result.poiList.pois.length
+          ) {
+            storeLocResults = result.poiList.pois;
+            renderStoreLocResults();
+          } else {
+            toast("未找到该地点或店铺");
+          }
+        };
+        if (loc) {
+          locUsedForSearch = true;
+          place.searchNearBy(keyword, [loc.lng, loc.lat], 5000, done);
         } else {
-          toast("未找到该地点或店铺");
+          locUsedForSearch = false;
+          place.search(keyword, done);
         }
       });
     } catch (e) {}
@@ -2150,6 +2192,9 @@
     }
     el.innerHTML =
       '<div class="card" style="margin-top:8px;">' +
+      (locUsedForSearch
+        ? '<div class="hint" style="text-align:left;padding:8px 12px 0;">已按距你 5 公里内排序</div>'
+        : '<div class="hint" style="text-align:left;padding:8px 12px 0;">未获取到位置，显示全国结果</div>') +
       storeLocResults
         .map(function (poi, i) {
           return (
@@ -2160,7 +2205,12 @@
             esc(poi.name) +
             "</b>" +
             (poi.address
-              ? "<span>" + esc(poi.address) + "</span>"
+              ? "<span>" +
+                esc(poi.address) +
+                (poi.distance != null
+                  ? " · " + fmtDist(poi.distance)
+                  : "") +
+                "</span>"
               : "") +
             "</button>"
           );
