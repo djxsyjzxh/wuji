@@ -2,6 +2,7 @@
   "use strict";
 
   var LS_RECORDS = "wuji.records.v1";
+  var LS_STORES = "wuji.stores.v1";
   var LS_PROFILE = "wuji.profile.v1";
   var LS_SEEDED = "wuji.seeded.v1";
   var LS_BARCODE = "wuji.barcode.v1";
@@ -75,6 +76,19 @@
     "母婴",
     "宠物"
   ];
+  var STORE_CATS = [
+    { value: "餐厅", label: "餐厅", emoji: "🍽️" },
+    { value: "咖啡饮品", label: "咖啡饮品", emoji: "☕" },
+    { value: "甜品", label: "甜品", emoji: "🍰" },
+    { value: "小吃", label: "小吃", emoji: "🍢" },
+    { value: "超市", label: "超市", emoji: "🛒" },
+    { value: "便利店", label: "便利店", emoji: "🏪" },
+    { value: "服装", label: "服装", emoji: "👕" },
+    { value: "美妆", label: "美妆", emoji: "💄" },
+    { value: "数码", label: "数码", emoji: "📱" },
+    { value: "生活服务", label: "生活服务", emoji: "✂️" },
+    { value: "其他", label: "其他", emoji: "📍" }
+  ];
   var PURCHASE_CHANNELS = {
     online: [
       { value: "淘宝/天猫", label: "淘宝/天猫" },
@@ -97,6 +111,7 @@
 
   var state = {
     records: [],
+    stores: [],
     profile: { name: "物友", phone: "", avatar: "" },
     session: null,
     authMode: "login",
@@ -110,6 +125,10 @@
       source: ""
     },
     expandedItems: {},
+    storeSearch: "",
+    storeCat: "",
+    expandedStores: {},
+    editingStore: null,
     editing: null,
     barcodeCache: {},
     lastTab: "home",
@@ -313,6 +332,29 @@
       : "首次购买";
   }
 
+  function storeKey(r) {
+    return (
+      (r.name || "").trim() + "|" + (r.category || "").trim()
+    );
+  }
+
+  function storesByKey(key) {
+    return state.stores
+      .filter(function (r) {
+        return storeKey(r) === key;
+      })
+      .sort(function (a, b) {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      });
+  }
+
+  function storeEmoji(cat) {
+    var hit = STORE_CATS.find(function (c) {
+      return c.value === cat;
+    });
+    return hit ? hit.emoji : "🏪";
+  }
+
   function purchaseRow(r, i) {
     return (
       '<a class="row purchase-row" href="#/detail/r-' +
@@ -350,6 +392,12 @@
     } catch (e) {
       toast("保存失败：本地存储空间不足，可先删除带照片的记录");
     }
+  }
+
+  function saveStores() {
+    try {
+      localStorage.setItem(LS_STORES, JSON.stringify(state.stores));
+    } catch (e) {}
   }
 
   function saveBarcodeCache() {
@@ -710,6 +758,112 @@
     ).catch(function () {});
   }
 
+  function storeToRow(s) {
+    return {
+      id: s.id,
+      owner: currentOwner(),
+      name: s.name || "",
+      category: s.category || "",
+      emoji: s.emoji || storeEmoji(s.category),
+      photo: s.photo || null,
+      rating: s.rating || 0,
+      recommend: s.recommend || "",
+      price: s.price == null || s.price === "" ? null : s.price,
+      address: s.address || "",
+      comment: s.comment || "",
+      status: s.status || "using",
+      createdat: s.createdAt || new Date().toISOString(),
+      updatedat: s.updatedAt || new Date().toISOString()
+    };
+  }
+
+  function rowToStore(row) {
+    return {
+      id: row.id,
+      name: row.name || "",
+      category: row.category || "",
+      emoji: row.emoji || storeEmoji(row.category),
+      photo: row.photo || null,
+      rating: row.rating || 0,
+      recommend: row.recommend || "",
+      price: row.price == null ? null : Number(row.price),
+      address: row.address || "",
+      comment: row.comment || "",
+      status: row.status || "using",
+      createdAt: row.createdat,
+      updatedAt: row.updatedat
+    };
+  }
+
+  function fetchStores() {
+    return cloudApi(
+      "/stores?select=*&owner=eq." +
+        encodeURIComponent(currentOwner()) +
+        "&order=createdat.asc"
+    ).then(function (res) {
+      if (!res.ok) throw new Error("cloud " + res.status);
+      return res.json();
+    });
+  }
+
+  function upsertStoreToCloud(s) {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi("/stores?on_conflict=id", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([storeToRow(s)])
+    }).catch(function () {});
+  }
+
+  function deleteStoreInCloud(id) {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi(
+      "/stores?id=eq." +
+        encodeURIComponent(id) +
+        "&owner=eq." +
+        encodeURIComponent(currentOwner()),
+      { method: "DELETE" }
+    ).catch(function () {});
+  }
+
+  function syncStoresFromCloud() {
+    if (!cloudEnabled()) return Promise.resolve();
+    return fetchStores()
+      .then(function (cloudRows) {
+        var cloudById = {};
+        cloudRows.forEach(function (cr) {
+          cloudById[cr.id] = cr;
+        });
+        var merged = state.stores.slice();
+        var localById = {};
+        merged.forEach(function (s) {
+          localById[s.id] = s;
+        });
+        cloudRows.forEach(function (cr) {
+          var ls = localById[cr.id];
+          if (!ls) {
+            merged.push(rowToStore(cr));
+          } else if (new Date(cr.updatedat) > new Date(ls.updatedAt)) {
+            var idx = merged.indexOf(ls);
+            merged[idx] = rowToStore(cr);
+          }
+        });
+        var toPush = merged.filter(function (s) {
+          var cr = cloudById[s.id];
+          return !cr || new Date(s.updatedAt) > new Date(cr.updatedat);
+        });
+        state.stores = merged;
+        saveStores();
+        toPush.forEach(function (s) {
+          upsertStoreToCloud(s);
+        });
+      })
+      .catch(function () {});
+  }
+
   function syncFromCloud() {
     if (!cloudEnabled()) {
       state.cloudOk = false;
@@ -746,6 +900,7 @@
           upsertRecordToCloud(r);
         });
         route();
+        syncStoresFromCloud();
       })
       .catch(function () {
         state.cloudOk = false;
@@ -920,6 +1075,12 @@
       state.records = rec ? JSON.parse(rec) : [];
     } catch (e) {
       state.records = [];
+    }
+    try {
+      var st = localStorage.getItem(LS_STORES);
+      state.stores = st ? JSON.parse(st) : [];
+    } catch (e) {
+      state.stores = [];
     }
     try {
       var prof = localStorage.getItem(LS_PROFILE);
@@ -1581,6 +1742,463 @@
     if (tags) tags.innerHTML = renderFilterTags();
     var list = document.getElementById("items-list");
     if (list) list.innerHTML = itemsListHtml();
+  }
+
+  /* ---------- 店铺 ---------- */
+
+  function filteredStoreGroups() {
+    var groups = {};
+    state.stores.forEach(function (s) {
+      var k = storeKey(s);
+      if (!groups[k]) groups[k] = [];
+      groups[k].push(s);
+    });
+    var list = Object.keys(groups)
+      .map(function (k) {
+        return { key: k, list: storesByKey(k) };
+      })
+      .sort(function (a, b) {
+        var la = a.list[a.list.length - 1];
+        var lb = b.list[b.list.length - 1];
+        return (
+          new Date(lb.updatedAt || lb.createdAt) -
+          new Date(la.updatedAt || la.createdAt)
+        );
+      });
+    var q = String(state.storeSearch || "").trim().toLowerCase();
+    var cat = state.storeCat || "";
+    return list.filter(function (g) {
+      var l = g.list[g.list.length - 1];
+      if (cat && l.category !== cat) return false;
+      if (q) {
+        var hay = (
+          (l.name || "") +
+          " " +
+          (l.category || "") +
+          " " +
+          (l.address || "")
+        ).toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  function storeVisitRow(s, i) {
+    return (
+      '<a class="row purchase-row" href="#/store-detail/r-' +
+      s.id +
+      '">' +
+      '<span class="purchase-badge" aria-hidden="true">' +
+      i +
+      "</span>" +
+      '<span class="row-main">' +
+      '<span class="purchase-date">' +
+      esc(fmtDate(s.createdAt)) +
+      "</span>" +
+      (s.rating ? starsLine(s.rating) : "") +
+      "</span>" +
+      '<span class="purchase-side">' +
+      (s.price != null
+        ? '<span class="purchase-price">¥' +
+          esc(fmtMoney(s.price)) +
+          "</span>"
+        : "") +
+      "</span>" +
+      "</a>"
+    );
+  }
+
+  function storeListHtml() {
+    var groups = filteredStoreGroups();
+    if (!groups.length) {
+      return (
+        '<div class="empty"><span class="e">🏪</span>' +
+        (state.storeSearch || state.storeCat
+          ? "没有找到匹配的店铺"
+          : "还没有店铺，点右上角 ＋ 记录第一家吧") +
+        "</div>"
+      );
+    }
+    return groups
+      .map(function (g) {
+        var l = g.list[g.list.length - 1];
+        var expanded = !!state.expandedStores[g.key];
+        var repHigh = g.list.length >= 2;
+        return (
+          '<div class="card item-card">' +
+          '<div class="item-head" data-action="toggle-store" data-key="' +
+          esc(g.key) +
+          '">' +
+          '<span class="thumb" aria-hidden="true">' +
+          esc(l.emoji || storeEmoji(l.category)) +
+          "</span>" +
+          '<span class="row-main">' +
+          '<span class="row-name">' +
+          esc(l.name) +
+          (l.recommend === "yes"
+            ? ' <span class="rec-flag" aria-hidden="true">👍</span>'
+            : l.recommend === "no"
+              ? ' <span class="rec-flag" aria-hidden="true">👎</span>'
+              : "") +
+          "</span>" +
+          '<span class="item-kv">' +
+          (l.category
+            ? '<span class="mini-tag">' + esc(l.category) + "</span>"
+            : "") +
+          (l.price != null
+            ? '<span class="item-price">¥' + esc(fmtMoney(l.price)) + "</span>"
+            : "") +
+          (l.rating
+            ? '<span class="stars">★ ' + esc(l.rating) + "</span>"
+            : "") +
+          '<span class="buy-count' +
+          (repHigh ? " rep-high" : "") +
+          '">到访 <b>' +
+          g.list.length +
+          "</b> 次</span>" +
+          "</span>" +
+          "</span>" +
+          '<button class="rebuy-btn" data-action="re-visit" data-id="' +
+          esc(l.id) +
+          '">再访一次</button>' +
+          '<span class="item-chevron" aria-hidden="true">' +
+          (expanded ? "▾" : "▸") +
+          "</span>" +
+          "</div>" +
+          '<div class="purchase-list"' +
+          (expanded ? "" : " hidden") +
+          ">" +
+          g.list
+            .map(function (s, i) {
+              return storeVisitRow(s, i + 1);
+            })
+            .join("") +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderStores() {
+    var groups = filteredStoreGroups();
+    return (
+      '<div class="head"><div><div class="page-title">我的店铺</div>' +
+      '<div class="sub">共 ' +
+      state.stores.length +
+      " 次到访 · " +
+      groups.length +
+      " 家店</div></div>" +
+      '<button class="icon-btn add-btn" data-action="new-store" aria-label="记录店铺">＋</button></div>' +
+      '<div class="search-row">' +
+      '<div class="search-box">' +
+      '<span class="search-icon" aria-hidden="true">🔍</span>' +
+      '<input class="input" id="store-search" type="search" placeholder="搜索店名 / 类型 / 地址" value="' +
+      esc(state.storeSearch) +
+      '">' +
+      "</div>" +
+      "</div>" +
+      '<div class="chips" id="store-filter" style="margin:10px 0 4px;">' +
+      renderStoreFilterChips() +
+      "</div>" +
+      '<div id="store-list">' +
+      storeListHtml() +
+      "</div>"
+    );
+  }
+
+  function renderStoreFilterChips() {
+    var cats = [];
+    state.stores.forEach(function (s) {
+      if (s.category && cats.indexOf(s.category) < 0) cats.push(s.category);
+    });
+    cats.sort();
+    var html =
+      '<button type="button" class="chip' +
+      (!state.storeCat ? " on" : "") +
+      '" data-action="store-cat" data-value="">全部</button>';
+    html += cats
+      .map(function (c) {
+        return (
+          '<button type="button" class="chip' +
+          (state.storeCat === c ? " on" : "") +
+          '" data-action="store-cat" data-value="' +
+          esc(c) +
+          '">' +
+          esc(c) +
+          "</button>"
+        );
+      })
+      .join("");
+    return html;
+  }
+
+  function newStore() {
+    state.editingStore = {
+      id: null,
+      name: "",
+      category: "",
+      emoji: "🏪",
+      photo: null,
+      rating: 0,
+      recommend: "",
+      price: "",
+      address: "",
+      comment: "",
+      status: "using"
+    };
+    return state.editingStore;
+  }
+
+  function renderStoreRecord() {
+    var e = state.editingStore || newStore();
+    return (
+      '<div class="topbar">' +
+      '<button class="icon-btn" data-action="goto" data-to="#/stores" aria-label="返回">‹</button>' +
+      "<h2>记录店铺</h2></div>" +
+      '<label class="label" for="store-name">店名 *</label>' +
+      '<input class="input" id="store-name" data-bind="name" value="' +
+      esc(e.name) +
+      '" placeholder="比如：老张牛肉面">' +
+      '<div class="label">类型</div>' +
+      '<div class="chips" id="store-cats"></div>' +
+      '<div class="label">推荐吗（可选）</div>' +
+      '<div class="chips" id="store-recommend"></div>' +
+      '<div class="label">我的评分</div>' +
+      '<div id="store-stars"></div>' +
+      '<label class="label" for="store-price">人均消费（可选）</label>' +
+      '<div style="position:relative;">' +
+      '<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);">¥</span>' +
+      '<input class="input" id="store-price" data-bind="price" inputmode="decimal" placeholder="0.00" style="padding-left:28px;" value="' +
+      esc(e.price == null ? "" : e.price) +
+      '">' +
+      "</div>" +
+      '<label class="label" for="store-address">地址（可选）</label>' +
+      '<input class="input" id="store-address" data-bind="address" value="' +
+      esc(e.address) +
+      '" placeholder="比如：幸福路 88 号">' +
+      '<label class="label" for="store-comment">一句话短评（可选）</label>' +
+      '<textarea class="textarea" id="store-comment" data-bind="comment" placeholder="比如：面劲道，汤底浓，会再来。">' +
+      esc(e.comment || "") +
+      "</textarea>" +
+      '<div class="label">照片（可选）</div>' +
+      '<div class="photo-actions" id="store-upload">' +
+      '<button type="button" class="photo-btn" data-action="pick-store-photo" data-mode="camera">' +
+      '<span class="tool-icon" aria-hidden="true">📸</span><span>拍照</span></button>' +
+      '<button type="button" class="photo-btn" data-action="pick-store-photo">' +
+      '<span class="tool-icon" aria-hidden="true">🖼️</span><span>从相册选择</span></button>' +
+      "</div>" +
+      '<div id="store-photo"></div>' +
+      '<button class="btn btn-primary" data-action="save-store">保存店铺</button>'
+    );
+  }
+
+  function renderStoreControls() {
+    renderStoreStars();
+    renderStoreCats();
+    renderStoreRecommend();
+    renderStorePhoto();
+  }
+
+  function renderStoreCats() {
+    var el = document.getElementById("store-cats");
+    if (!el) return;
+    el.innerHTML = STORE_CATS.map(function (c) {
+      return (
+        '<button type="button" class="chip' +
+        (state.editingStore.category === c.value ? " on" : "") +
+        '" data-action="store-cat-set" data-value="' +
+        c.value +
+        '">' +
+        c.emoji +
+        " " +
+        c.label +
+        "</button>"
+      );
+    }).join("");
+  }
+
+  function renderStoreRecommend() {
+    var el = document.getElementById("store-recommend");
+    if (!el) return;
+    el.innerHTML =
+      '<button type="button" class="chip' +
+      (state.editingStore.recommend === "yes" ? " on" : "") +
+      '" data-action="store-recommend" data-value="yes">👍 推荐</button>' +
+      '<button type="button" class="chip' +
+      (state.editingStore.recommend === "no" ? " on" : "") +
+      '" data-action="store-recommend" data-value="no">👎 不推荐</button>';
+  }
+
+  function renderStoreStars() {
+    var el = document.getElementById("store-stars");
+    if (!el) return;
+    var html = '<div class="star-row">';
+    for (var i = 1; i <= 5; i++) {
+      html +=
+        '<button type="button" class="star-btn' +
+        (state.editingStore.rating >= i ? " on" : "") +
+        '" data-action="store-star" data-value="' +
+        i +
+        '">★</button>';
+    }
+    html +=
+      "</div>" +
+      '<span style="font-size:13px;color:var(--muted);margin-top:6px;display:inline-block;">' +
+      (state.editingStore.rating
+        ? state.editingStore.rating + " 星"
+        : "点击评分") +
+      "</span>";
+    el.innerHTML = html;
+  }
+
+  function renderStorePhoto() {
+    var el = document.getElementById("store-photo");
+    var upload = document.getElementById("store-upload");
+    if (!el) return;
+    if (state.editingStore.photo) {
+      el.innerHTML =
+        '<img class="photo-preview" data-action="view-photo" data-src="' +
+        state.editingStore.photo +
+        '" src="' +
+        state.editingStore.photo +
+        '" alt="店铺照片" style="cursor:zoom-in;">' +
+        '<button class="link-btn" data-action="clear-store-photo" style="margin-top:6px;">移除照片</button>';
+      if (upload) upload.style.display = "none";
+    } else {
+      el.innerHTML = "";
+      if (upload) upload.style.display = "";
+    }
+  }
+
+  function saveStore() {
+    var e = state.editingStore;
+    if (!e || !e.name.trim()) {
+      toast("请填写店名");
+      return;
+    }
+    var price = parseFloat(
+      String(e.price == null ? "" : e.price).replace(/[^\d.]/g, "")
+    );
+    e.price = isNaN(price) ? null : Math.round(price * 100) / 100;
+    var now = new Date().toISOString();
+    var saved = null;
+    if (e.id) {
+      var idx = state.stores.findIndex(function (s) {
+        return s.id === e.id;
+      });
+      if (idx >= 0) {
+        state.stores[idx] = Object.assign({}, state.stores[idx], e, {
+          updatedAt: now
+        });
+        saved = state.stores[idx];
+      }
+    } else {
+      saved = Object.assign({}, e, {
+        id: uid(),
+        createdAt: now,
+        updatedAt: now,
+        emoji: e.emoji || storeEmoji(e.category)
+      });
+      state.stores.push(saved);
+    }
+    saveStores();
+    if (saved) upsertStoreToCloud(saved);
+    state.editingStore = null;
+    toast("已保存");
+    location.hash = "#/stores";
+  }
+
+  function renderStoreDetail(id) {
+    if (id.indexOf("r-") === 0) {
+      var s = state.stores.find(function (x) {
+        return x.id === id.slice(2);
+      });
+      if (!s) return renderStores();
+      var key = storeKey(s);
+      var visits = storesByKey(key);
+      var idx = visits.findIndex(function (x) {
+        return x.id === s.id;
+      }) + 1;
+      var recommend =
+        s.recommend === "yes"
+          ? "👍 推荐"
+          : s.recommend === "no"
+            ? "👎 不推荐"
+            : "未标记";
+      return (
+        '<div class="topbar">' +
+        '<button class="icon-btn" data-action="goto" data-to="#/stores" aria-label="返回">‹</button>' +
+        "<h2>" +
+        esc(s.name) +
+        "</h2>" +
+        '<button class="icon-btn" data-action="edit-store" data-id="' +
+        esc(s.id) +
+        '" aria-label="编辑">✎</button></div>' +
+        (s.photo
+          ? '<button class="big-thumb big-photo" data-action="view-photo" data-src="' +
+            s.photo +
+            '"><img src="' +
+            s.photo +
+            '" alt="店铺照片" style="width:100%;height:auto;max-height:460px;object-fit:contain;border-radius:16px;display:block;"></button>'
+          : '<div class="big-thumb" aria-hidden="true">' +
+            esc(s.emoji || storeEmoji(s.category)) +
+            "</div>") +
+        '<div style="margin-top:12px;"><div style="font-size:18px;font-weight:600;">' +
+        esc(s.name) +
+        (s.recommend === "yes" ? " 👍" : s.recommend === "no" ? " 👎" : "") +
+        "</div>" +
+        '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' +
+        esc(s.category || "") +
+        (s.address ? " · " + esc(s.address) : "") +
+        "</div></div>" +
+        '<div class="label">到访信息</div>' +
+        '<div class="card kv-grid">' +
+        '<div><div class="kv-label">类型</div><div class="kv-value">' +
+        esc(s.category || "未填") +
+        "</div></div>" +
+        '<div><div class="kv-label">推荐</div><div class="kv-value">' +
+        recommend +
+        "</div></div>" +
+        '<div><div class="kv-label">人均消费</div><div class="kv-value">' +
+        (s.price != null ? "¥" + fmtMoney(s.price) : "未填") +
+        "</div></div>" +
+        '<div><div class="kv-label">评分</div><div class="kv-value">' +
+        (s.rating ? s.rating + " ★" : "未评分") +
+        "</div></div>" +
+        '<div><div class="kv-label">到访次数</div><div class="kv-value">' +
+        visits.length +
+        " 次</div></div>" +
+        '<div><div class="kv-label">本次</div><div class="kv-value">第 ' +
+        idx +
+        " 次</div></div>" +
+        "</div>" +
+        (s.comment
+          ? '<div class="label">我的短评</div><div class="quote">' +
+            esc(s.comment) +
+            "</div>"
+          : "") +
+        '<div class="label">全部到访</div>' +
+        '<div class="card">' +
+        visits
+          .map(function (v, i) {
+            return storeVisitRow(v, i + 1);
+          })
+          .join("") +
+        "</div>" +
+        '<button class="btn btn-ghost" data-action="re-visit" data-id="' +
+        esc(s.id) +
+        '">再访一次</button>' +
+        '<button class="btn btn-primary" data-action="edit-store" data-id="' +
+        esc(s.id) +
+        '">编辑这次记录</button>' +
+        '<button class="btn btn-danger" data-action="delete-store" data-id="' +
+        esc(s.id) +
+        '">删除这次记录</button>'
+      );
+    }
+    return renderStores();
   }
 
   function renderProfile() {
@@ -2355,6 +2973,9 @@
   var VIEWS = {
     home: renderHome,
     items: renderItems,
+    stores: renderStores,
+    "store-record": renderStoreRecord,
+    "store-detail": renderStoreDetail,
     profile: renderProfile,
     record: renderRecord,
     detail: renderDetail,
@@ -2369,12 +2990,16 @@
     var fn = VIEWS[r.path] || renderHome;
     view.innerHTML = fn(r.id);
     var tab =
-      r.path === "home" || r.path === "items" || r.path === "profile"
+      r.path === "home" ||
+      r.path === "items" ||
+      r.path === "stores" ||
+      r.path === "profile"
         ? r.path
         : state.lastTab;
     if (
       r.path === "home" ||
       r.path === "items" ||
+      r.path === "stores" ||
       r.path === "profile"
     ) {
       state.lastTab = r.path;
@@ -2385,6 +3010,10 @@
     if (r.path === "record") {
       if (!state.editing) newRecord();
       renderRecordControls();
+    }
+    if (r.path === "store-record") {
+      if (!state.editingStore) newStore();
+      renderStoreControls();
     }
     if (r.path === "scan") {
       startScanner();
@@ -2971,6 +3600,111 @@
       }
       return;
     }
+    if (action === "new-store") {
+      newStore();
+      location.hash = "#/store-record";
+      return;
+    }
+    if (action === "store-cat-set") {
+      if (state.editingStore) {
+        state.editingStore.category = value;
+        state.editingStore.emoji = storeEmoji(value);
+        renderStoreCats();
+      }
+      return;
+    }
+    if (action === "store-recommend") {
+      if (state.editingStore) {
+        state.editingStore.recommend =
+          state.editingStore.recommend === value ? "" : value;
+        renderStoreRecommend();
+      }
+      return;
+    }
+    if (action === "store-star") {
+      if (state.editingStore) {
+        state.editingStore.rating = Number(value);
+        renderStoreStars();
+      }
+      return;
+    }
+    if (action === "pick-store-photo") {
+      var pInput = document.getElementById("photo-input");
+      if (pInput) {
+        pInput.removeAttribute("capture");
+        if (el.getAttribute("data-mode") === "camera") {
+          pInput.setAttribute("capture", "environment");
+        }
+        pInput.click();
+      }
+      return;
+    }
+    if (action === "clear-store-photo") {
+      if (state.editingStore) {
+        state.editingStore.photo = null;
+        renderStorePhoto();
+      }
+      return;
+    }
+    if (action === "save-store") {
+      saveStore();
+      return;
+    }
+    if (action === "re-visit") {
+      var srcStore = state.stores.find(function (s) {
+        return s.id === el.getAttribute("data-id");
+      });
+      if (srcStore) {
+        newStore();
+        state.editingStore.name = srcStore.name;
+        state.editingStore.category = srcStore.category;
+        state.editingStore.emoji = srcStore.emoji || storeEmoji(srcStore.category);
+        location.hash = "#/store-record";
+      }
+      return;
+    }
+    if (action === "edit-store") {
+      var es = state.stores.find(function (s) {
+        return s.id === el.getAttribute("data-id");
+      });
+      if (es) {
+        state.editingStore = Object.assign({}, es);
+        location.hash = "#/store-record";
+      }
+      return;
+    }
+    if (action === "delete-store") {
+      var sid2 = el.getAttribute("data-id");
+      if (confirm("确定删除这次到访记录吗？删除后不可恢复。")) {
+        var delStore = state.stores.find(function (s) {
+          return s.id === sid2;
+        });
+        state.stores = state.stores.filter(function (s) {
+          return s.id !== sid2;
+        });
+        saveStores();
+        deleteStoreInCloud(sid2);
+        if (delStore) deleteStorageFile(delStore.photo);
+        toast("已删除");
+        location.hash = "#/stores";
+      }
+      return;
+    }
+    if (action === "store-cat") {
+      state.storeCat = value || "";
+      var sf = document.getElementById("store-filter");
+      if (sf) sf.innerHTML = renderStoreFilterChips();
+      var sl = document.getElementById("store-list");
+      if (sl) sl.innerHTML = storeListHtml();
+      return;
+    }
+    if (action === "toggle-store") {
+      var skey = el.getAttribute("data-key");
+      state.expandedStores[skey] = !state.expandedStores[skey];
+      var sl2 = document.getElementById("store-list");
+      if (sl2) sl2.innerHTML = storeListHtml();
+      return;
+    }
     if (action === "save-record") {
       saveRecord();
       return;
@@ -3092,15 +3826,42 @@
       }
       return;
     }
+    if (t.id === "store-search") {
+      state.storeSearch = t.value;
+      var sl3 = document.getElementById("store-list");
+      if (sl3) sl3.innerHTML = storeListHtml();
+      return;
+    }
     var bind = t.getAttribute("data-bind");
     if (state.editing && bind) {
       state.editing[bind] = t.value;
+    } else if (state.editingStore && bind) {
+      state.editingStore[bind] = t.value;
     }
   });
 
   document.getElementById("photo-input").addEventListener("change", function (ev) {
     var file = ev.target.files && ev.target.files[0];
     if (!file) return;
+    if (state.editingStore) {
+      readPhoto(file).then(function (dataUrl) {
+        if (dataUrl) {
+          var old = state.editingStore.photo;
+          uploadImageToStorage(dataUrl).then(function (final) {
+            state.editingStore.photo = final;
+            if (isStorageUrl(old) && old !== final) deleteStorageFile(old);
+            renderStorePhoto();
+            toast(
+              isStorageUrl(final) ? "已添加照片（云端）" : "已添加照片（本机）"
+            );
+          });
+        } else {
+          toast("照片读取失败");
+        }
+        ev.target.value = "";
+      });
+      return;
+    }
     if (!state.editing) newRecord();
     readPhoto(file).then(function (dataUrl) {
       if (dataUrl) {
