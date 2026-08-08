@@ -1060,7 +1060,7 @@ button {
   gap: 8px;
 }
 
-.map-search-btn {
+.btn.map-search-btn {
   width: auto;
   margin: 0;
   padding: 11px 16px;

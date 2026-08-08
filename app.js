@@ -2065,6 +2065,14 @@
       return;
     }
     if (document.getElementById("amap-script")) return;
+    if (
+      typeof WUJI_AMAP_JSCODE !== "undefined" &&
+      WUJI_AMAP_JSCODE
+    ) {
+      window._AMapSecurityConfig = {
+        securityJsCode: WUJI_AMAP_JSCODE
+      };
+    }
     var s = document.createElement("script");
     s.id = "amap-script";
     s.src =
@@ -2107,6 +2115,45 @@
         state.editingStore.address = result.regeocode.formattedAddress;
         var addr = document.getElementById("store-addr");
         if (addr) addr.textContent = result.regeocode.formattedAddress;
+      }
+    });
+  }
+
+  function runStoreMapSearch() {
+    var kw = document.getElementById("store-map-search");
+    if (!kw || !window.AMap) return;
+    var keyword = String(kw.value || "").trim();
+    if (!keyword) {
+      toast("请输入要搜索的地点或店铺");
+      return;
+    }
+    var place = new AMap.PlaceSearch({
+      pageSize: 5,
+      pageIndex: 1,
+      city: "",
+      citylimit: false
+    });
+    place.search(keyword, function (status, result) {
+      if (
+        status === "complete" &&
+        result.poiList &&
+        result.poiList.pois.length
+      ) {
+        var poi = result.poiList.pois[0];
+        var pos = poi.location;
+        state.editingStore.longitude = pos.getLng();
+        state.editingStore.latitude = pos.getLat();
+        state.editingStore.address =
+          poi.name + (poi.address ? " · " + poi.address : "");
+        if (storeMarker) storeMap.remove(storeMarker);
+        storeMarker = new AMap.Marker({ position: pos });
+        storeMap.add(storeMarker);
+        storeMap.setCenter(pos);
+        storeMap.setZoom(16);
+        var addr = document.getElementById("store-addr");
+        if (addr) addr.textContent = state.editingStore.address;
+      } else {
+        toast("未找到该地点或店铺");
       }
     });
   }
@@ -3763,32 +3810,7 @@
       return;
     }
     if (action === "store-map-search") {
-      var kw = document.getElementById("store-map-search");
-      if (!kw || !window.AMap) return;
-      var place = new AMap.PlaceSearch({ pageSize: 1, pageIndex: 1 });
-      place.search(kw.value, function (status, result) {
-        if (
-          status === "complete" &&
-          result.poiList &&
-          result.poiList.pois.length
-        ) {
-          var poi = result.poiList.pois[0];
-          var pos = poi.location;
-          state.editingStore.longitude = pos.getLng();
-          state.editingStore.latitude = pos.getLat();
-          state.editingStore.address =
-            poi.name + (poi.address ? " · " + poi.address : "");
-          if (storeMarker) storeMap.remove(storeMarker);
-          storeMarker = new AMap.Marker({ position: pos });
-          storeMap.add(storeMarker);
-          storeMap.setCenter(pos);
-          storeMap.setZoom(16);
-          var addr = document.getElementById("store-addr");
-          if (addr) addr.textContent = state.editingStore.address;
-        } else {
-          toast("未找到该地点");
-        }
-      });
+      runStoreMapSearch();
       return;
     }
     if (action === "pick-store-photo") {
@@ -4072,6 +4094,14 @@
     if (ev.key === "Enter" && ev.target && ev.target.id === "nick-input") {
       ev.preventDefault();
       saveNick();
+    }
+    if (
+      ev.key === "Enter" &&
+      ev.target &&
+      ev.target.id === "store-map-search"
+    ) {
+      ev.preventDefault();
+      runStoreMapSearch();
     }
   });
 
