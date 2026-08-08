@@ -535,6 +535,8 @@
       status: r.status || "using",
       method: r.method || "manual",
       expirydate: r.expiryDate || "",
+      produceddate: r.producedDate || "",
+      shelfdays: r.shelfDays == null ? null : r.shelfDays,
       createdat: r.createdAt || new Date().toISOString(),
       updatedat: r.updatedAt || new Date().toISOString()
     };
@@ -559,6 +561,8 @@
       status: row.status || "using",
       method: row.method || "manual",
       expiryDate: row.expirydate || "",
+      producedDate: row.produceddate || "",
+      shelfDays: row.shelfdays == null ? null : Number(row.shelfdays),
       createdAt: row.createdat,
       updatedAt: row.updatedat
     };
@@ -1684,11 +1688,17 @@
       "</div>" +
       '<div class="expiry-wrap" id="rec-expiry-wrap" style="display:none;">' +
       '<div class="label">保质期（可选）</div>' +
+      '<div class="label" style="margin:0 0 6px;">生产日期</div>' +
+      '<input class="input" id="rec-produced" type="date" data-bind="producedDate" value="' +
+      esc(e.producedDate || "") +
+      '">' +
+      '<div class="label" style="margin:12px 0 6px;">保质期时长</div>' +
+      '<div class="chips" id="rec-shelf-chips"></div>' +
+      '<div class="label" style="margin:12px 0 6px;">到期日</div>' +
       '<input class="input" id="rec-expiry-date" type="date" data-bind="expiryDate" value="' +
       esc(e.expiryDate || "") +
       '">' +
-      '<div class="chips" id="rec-expiry-chips" style="margin-top:8px;"></div>' +
-      '<div class="hint" style="text-align:left;margin-top:6px;">到期前 7 天会出现在主页「临期提醒」里</div>' +
+      '<div class="hint" style="text-align:left;margin-top:6px;">到期日 = 生产日期 + 时长；未填生产日期则按今天算。到期前 7 天出现在主页「临期提醒」</div>' +
       "</div>" +
       '<div class="label">我的评分</div>' +
       '<div id="rec-stars"></div>' +
@@ -1766,31 +1776,55 @@
     var wrap = document.getElementById("rec-expiry-wrap");
     if (!wrap) return;
     var cat = state.editing.category;
-    var show = !!state.editing.expiryDate || EXPIRY_CATS.indexOf(cat) >= 0;
+    var has =
+      !!state.editing.expiryDate ||
+      !!state.editing.producedDate ||
+      !!state.editing.shelfDays;
+    var show = has || EXPIRY_CATS.indexOf(cat) >= 0;
     wrap.style.display = show ? "" : "none";
-    var chips = document.getElementById("rec-expiry-chips");
+    var chips = document.getElementById("rec-shelf-chips");
     if (chips) {
-      chips.innerHTML = [
+      var opts = [
         [7, "7 天"],
         [30, "1 个月"],
         [90, "3 个月"],
         [180, "6 个月"],
-        [365, "1 年"]
-      ]
-        .map(function (o) {
-          return (
-            '<button type="button" class="chip" data-action="expiry-preset" data-days="' +
-            o[0] +
-            '">' +
-            o[1] +
-            "</button>"
-          );
-        })
-        .join("") +
-        (state.editing.expiryDate
+        [365, "1 年"],
+        [730, "2 年"]
+      ];
+      chips.innerHTML =
+        opts
+          .map(function (o) {
+            return (
+              '<button type="button" class="chip' +
+              (state.editing.shelfDays === o[0] ? " on" : "") +
+              '" data-action="expiry-preset" data-days="' +
+              o[0] +
+              '">' +
+              o[1] +
+              "</button>"
+            );
+          })
+          .join("") +
+        (has
           ? '<button type="button" class="chip" data-action="expiry-clear">清除</button>'
           : "");
     }
+  }
+
+  function recomputeExpiry() {
+    var days = state.editing.shelfDays;
+    if (!days) return;
+    var base = state.editing.producedDate || todayStr();
+    var d = new Date(base + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    var pad2 = function (n) {
+      return String(n).padStart(2, "0");
+    };
+    state.editing.expiryDate =
+      d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+    var el = document.getElementById("rec-expiry-date");
+    if (el) el.value = state.editing.expiryDate;
   }
 
   function renderCatField() {
@@ -2067,6 +2101,11 @@
         '<div><div class="kv-label">记录时间</div><div class="kv-value">' +
         esc(fmtDate(r.createdAt)) +
         "</div></div>" +
+        (r.producedDate
+          ? '<div><div class="kv-label">生产日期</div><div class="kv-value">' +
+            esc(r.producedDate) +
+            "</div></div>"
+          : "") +
         (r.expiryDate
           ? '<div><div class="kv-label">保质期</div><div class="kv-value">' +
             esc(r.expiryDate) +
@@ -2847,25 +2886,20 @@
     }
     if (action === "expiry-preset") {
       if (!state.editing) return;
-      var days = Number(el.getAttribute("data-days")) || 7;
-      var d = new Date();
-      d.setDate(d.getDate() + days);
-      var pad2 = function (n) {
-        return String(n).padStart(2, "0");
-      };
-      var val =
-        d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
-      state.editing.expiryDate = val;
-      var dateEl = document.getElementById("rec-expiry-date");
-      if (dateEl) dateEl.value = val;
+      state.editing.shelfDays = Number(el.getAttribute("data-days")) || 7;
+      recomputeExpiry();
       renderExpiry();
       return;
     }
     if (action === "expiry-clear") {
       if (state.editing) {
+        state.editing.producedDate = "";
+        state.editing.shelfDays = null;
         state.editing.expiryDate = "";
-        var dateEl2 = document.getElementById("rec-expiry-date");
-        if (dateEl2) dateEl2.value = "";
+        ["rec-produced", "rec-expiry-date"].forEach(function (id) {
+          var el2 = document.getElementById(id);
+          if (el2) el2.value = "";
+        });
         renderExpiry();
       }
       return;
@@ -3007,6 +3041,13 @@
       state.itemsSearch = t.value;
       var listEl = document.getElementById("items-list");
       if (listEl) listEl.innerHTML = itemsListHtml();
+      return;
+    }
+    if (t.id === "rec-produced") {
+      if (state.editing) {
+        state.editing.producedDate = t.value;
+        if (state.editing.shelfDays) recomputeExpiry();
+      }
       return;
     }
     var bind = t.getAttribute("data-bind");

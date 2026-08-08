@@ -956,11 +956,11 @@ button {
 
 .expiry-card {
   flex: none;
-  width: 104px;
+  width: 128px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 10px;
+  padding: 12px;
   position: relative;
   display: block;
   color: var(--text);
@@ -970,13 +970,13 @@ button {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   border: 0;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -984,24 +984,24 @@ button {
 }
 
 .expiry-card .expiry-emoji {
-  font-size: 22px;
+  font-size: 27px;
   line-height: 1;
 }
 
 .expiry-card b {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  margin: 7px 0 5px;
+  margin: 8px 0 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .epill {
-  font-size: 10px;
+  font-size: 11px;
   border-radius: 999px;
-  padding: 2px 7px;
+  padding: 3px 8px;
   display: inline-block;
   white-space: nowrap;
 }
@@ -1034,6 +1034,20 @@ button {
 .status-chips .chip {
   flex: 1;
   justify-content: center;
+}
+
+.expiry-wrap .input {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.expiry-wrap .chips {
+  flex-wrap: wrap;
+}
+
+.expiry-wrap .chip {
+  padding: 6px 11px;
+  font-size: 12px;
 }
 
 .btn {
