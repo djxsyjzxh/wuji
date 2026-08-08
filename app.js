@@ -769,6 +769,10 @@
       rating: s.rating || 0,
       recommend: s.recommend || "",
       price: s.price == null || s.price === "" ? null : s.price,
+      totalspend: s.totalSpend == null || s.totalSpend === "" ? null : s.totalSpend,
+      people: s.people == null || s.people === "" ? null : s.people,
+      latitude: s.latitude == null ? null : Number(s.latitude),
+      longitude: s.longitude == null ? null : Number(s.longitude),
       address: s.address || "",
       comment: s.comment || "",
       status: s.status || "using",
@@ -787,6 +791,10 @@
       rating: row.rating || 0,
       recommend: row.recommend || "",
       price: row.price == null ? null : Number(row.price),
+      totalSpend: row.totalspend == null ? null : Number(row.totalspend),
+      people: row.people == null ? null : Number(row.people),
+      latitude: row.latitude == null ? null : Number(row.latitude),
+      longitude: row.longitude == null ? null : Number(row.longitude),
       address: row.address || "",
       comment: row.comment || "",
       status: row.status || "using",
@@ -1944,6 +1952,10 @@
       rating: 0,
       recommend: "",
       price: "",
+      totalSpend: "",
+      people: "",
+      latitude: null,
+      longitude: null,
       address: "",
       comment: "",
       status: "using"
@@ -1967,17 +1979,37 @@
       '<div class="chips" id="store-recommend"></div>' +
       '<div class="label">我的评分</div>' +
       '<div id="store-stars"></div>' +
-      '<label class="label" for="store-price">人均消费（可选）</label>' +
-      '<div style="position:relative;">' +
+      '<div class="label">消费与人数</div>' +
+      '<div class="store-spend-row">' +
+      '<div style="position:relative;flex:1;min-width:0;">' +
       '<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);">¥</span>' +
-      '<input class="input" id="store-price" data-bind="price" inputmode="decimal" placeholder="0.00" style="padding-left:28px;" value="' +
-      esc(e.price == null ? "" : e.price) +
+      '<input class="input" id="store-total" data-bind="totalSpend" inputmode="decimal" placeholder="总消费" style="padding-left:28px;" value="' +
+      esc(e.totalSpend == null ? "" : e.totalSpend) +
       '">' +
       "</div>" +
-      '<label class="label" for="store-address">地址（可选）</label>' +
-      '<input class="input" id="store-address" data-bind="address" value="' +
-      esc(e.address) +
-      '" placeholder="比如：幸福路 88 号">' +
+      '<input class="input" id="store-people" data-bind="people" inputmode="numeric" placeholder="人数" style="width:96px;flex:none;" value="' +
+      esc(e.people == null ? "" : e.people) +
+      '">' +
+      "</div>" +
+      '<div class="hint" id="store-avg" style="text-align:left;margin-top:6px;">人均 ¥—</div>' +
+      '<div class="label">地点（在地图上选择）</div>' +
+      (typeof WUJI_AMAP_KEY !== "undefined" && WUJI_AMAP_KEY
+        ? '<div class="map-box">' +
+          '<div id="store-map" style="height:210px;border-radius:14px;"></div>' +
+          '<div class="search-row" style="margin-top:8px;">' +
+          '<div class="search-box">' +
+          '<span class="search-icon" aria-hidden="true">🔍</span>' +
+          '<input class="input" id="store-map-search" type="search" placeholder="搜索地点">' +
+          "</div>" +
+          '<button class="btn btn-ghost map-search-btn" data-action="store-map-search">搜索</button>' +
+          "</div>" +
+          '<div class="hint" id="store-addr" style="text-align:left;margin-top:6px;">' +
+          (e.address ? esc(e.address) : "点击地图或搜索选择位置") +
+          "</div>" +
+          "</div>"
+        : '<input class="input" id="store-address" data-bind="address" value="' +
+          esc(e.address) +
+          '" placeholder="比如：幸福路 88 号">') +
       '<label class="label" for="store-comment">一句话短评（可选）</label>' +
       '<textarea class="textarea" id="store-comment" data-bind="comment" placeholder="比如：面劲道，汤底浓，会再来。">' +
       esc(e.comment || "") +
@@ -1999,6 +2031,84 @@
     renderStoreCats();
     renderStoreRecommend();
     renderStorePhoto();
+    updateStoreAvg();
+    initStoreMap();
+  }
+
+  var storeMap = null;
+  var storeMarker = null;
+
+  function updateStoreAvg() {
+    var el = document.getElementById("store-avg");
+    if (!el) return;
+    var e = state.editingStore;
+    var total = parseFloat(
+      String(e.totalSpend == null ? "" : e.totalSpend).replace(/[^\d.]/g, "")
+    );
+    var people = parseInt(
+      String(e.people == null ? "" : e.people).replace(/\D/g, ""),
+      10
+    );
+    if (isNaN(total) || isNaN(people) || people <= 0) {
+      el.textContent = "人均 ¥—";
+      return;
+    }
+    el.textContent = "人均 ¥" + Math.round((total / people) * 100) / 100;
+  }
+
+  function initStoreMap() {
+    if (typeof WUJI_AMAP_KEY === "undefined" || !WUJI_AMAP_KEY) return;
+    var el = document.getElementById("store-map");
+    if (!el) return;
+    if (window.AMap) {
+      setupStoreMap();
+      return;
+    }
+    if (document.getElementById("amap-script")) return;
+    var s = document.createElement("script");
+    s.id = "amap-script";
+    s.src =
+      "https://webapi.amap.com/maps?v=1.4.15&key=" +
+      encodeURIComponent(WUJI_AMAP_KEY) +
+      "&plugin=AMap.PlaceSearch,AMap.Geocoder";
+    s.onload = function () {
+      setupStoreMap();
+    };
+    document.head.appendChild(s);
+  }
+
+  function setupStoreMap() {
+    if (!window.AMap) return;
+    var el = document.getElementById("store-map");
+    if (!el) return;
+    var e = state.editingStore || newStore();
+    var center = [e.longitude || 116.397428, e.latitude || 39.90923];
+    storeMap = new AMap.Map("store-map", { zoom: 15, center: center });
+    if (e.latitude != null && e.longitude != null) {
+      storeMarker = new AMap.Marker({ position: center });
+      storeMap.add(storeMarker);
+    }
+    storeMap.on("click", function (ev) {
+      var lng = ev.lnglat.getLng();
+      var lat = ev.lnglat.getLat();
+      state.editingStore.longitude = lng;
+      state.editingStore.latitude = lat;
+      if (storeMarker) storeMap.remove(storeMarker);
+      storeMarker = new AMap.Marker({ position: [lng, lat] });
+      storeMap.add(storeMarker);
+      reverseGeocode(lng, lat);
+    });
+  }
+
+  function reverseGeocode(lng, lat) {
+    var geocoder = new AMap.Geocoder();
+    geocoder.getAddress([lng, lat], function (status, result) {
+      if (status === "complete" && result.regeocode) {
+        state.editingStore.address = result.regeocode.formattedAddress;
+        var addr = document.getElementById("store-addr");
+        if (addr) addr.textContent = result.regeocode.formattedAddress;
+      }
+    });
   }
 
   function renderStoreCats() {
@@ -2078,10 +2188,19 @@
       toast("请填写店名");
       return;
     }
-    var price = parseFloat(
-      String(e.price == null ? "" : e.price).replace(/[^\d.]/g, "")
+    var total = parseFloat(
+      String(e.totalSpend == null ? "" : e.totalSpend).replace(/[^\d.]/g, "")
     );
-    e.price = isNaN(price) ? null : Math.round(price * 100) / 100;
+    var people = parseInt(
+      String(e.people == null ? "" : e.people).replace(/\D/g, ""),
+      10
+    );
+    e.totalSpend = isNaN(total) ? null : Math.round(total * 100) / 100;
+    e.people = !isNaN(people) && people > 0 ? people : null;
+    e.price =
+      e.totalSpend != null && e.people
+        ? Math.round((e.totalSpend / e.people) * 100) / 100
+        : null;
     var now = new Date().toISOString();
     var saved = null;
     if (e.id) {
@@ -2152,6 +2271,15 @@
         '<div style="font-size:12px;color:var(--muted);margin-top:2px;">' +
         esc(s.category || "") +
         (s.address ? " · " + esc(s.address) : "") +
+        (s.latitude != null && s.longitude != null
+          ? ' <a class="link-btn" target="_blank" rel="noopener" href="https://uri.amap.com/marker?position=' +
+            s.longitude +
+            "," +
+            s.latitude +
+            "&name=" +
+            encodeURIComponent(s.name) +
+            '">打开地图</a>'
+          : "") +
         "</div></div>" +
         '<div class="label">到访信息</div>' +
         '<div class="card kv-grid">' +
@@ -2164,6 +2292,12 @@
         '<div><div class="kv-label">人均消费</div><div class="kv-value">' +
         (s.price != null ? "¥" + fmtMoney(s.price) : "未填") +
         "</div></div>" +
+        (s.totalSpend != null
+          ? '<div><div class="kv-label">总消费 / 人数</div><div class="kv-value">¥' +
+            fmtMoney(s.totalSpend) +
+            (s.people ? " · " + s.people + " 人" : "") +
+            "</div></div>"
+          : "") +
         '<div><div class="kv-label">评分</div><div class="kv-value">' +
         (s.rating ? s.rating + " ★" : "未评分") +
         "</div></div>" +
@@ -3628,6 +3762,35 @@
       }
       return;
     }
+    if (action === "store-map-search") {
+      var kw = document.getElementById("store-map-search");
+      if (!kw || !window.AMap) return;
+      var place = new AMap.PlaceSearch({ pageSize: 1, pageIndex: 1 });
+      place.search(kw.value, function (status, result) {
+        if (
+          status === "complete" &&
+          result.poiList &&
+          result.poiList.pois.length
+        ) {
+          var poi = result.poiList.pois[0];
+          var pos = poi.location;
+          state.editingStore.longitude = pos.getLng();
+          state.editingStore.latitude = pos.getLat();
+          state.editingStore.address =
+            poi.name + (poi.address ? " · " + poi.address : "");
+          if (storeMarker) storeMap.remove(storeMarker);
+          storeMarker = new AMap.Marker({ position: pos });
+          storeMap.add(storeMarker);
+          storeMap.setCenter(pos);
+          storeMap.setZoom(16);
+          var addr = document.getElementById("store-addr");
+          if (addr) addr.textContent = state.editingStore.address;
+        } else {
+          toast("未找到该地点");
+        }
+      });
+      return;
+    }
     if (action === "pick-store-photo") {
       var pInput = document.getElementById("photo-input");
       if (pInput) {
@@ -3837,6 +4000,7 @@
       state.editing[bind] = t.value;
     } else if (state.editingStore && bind) {
       state.editingStore[bind] = t.value;
+      if (bind === "totalSpend" || bind === "people") updateStoreAvg();
     }
   });
 

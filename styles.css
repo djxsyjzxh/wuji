@@ -1055,6 +1055,18 @@ button {
   font-size: 12px;
 }
 
+.store-spend-row {
+  display: flex;
+  gap: 8px;
+}
+
+.map-search-btn {
+  width: auto;
+  margin: 0;
+  padding: 11px 16px;
+  white-space: nowrap;
+}
+
 .btn {
   display: block;
   width: 100%;
