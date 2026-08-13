@@ -7,6 +7,7 @@
   var LS_SEEDED = "wuji.seeded.v1";
   var LS_BARCODE = "wuji.barcode.v1";
   var LS_SESSION = "wuji.session.v1";
+  var LS_CART = "wuji.cart.v1";
 
   var CATEGORIES = [
     "护肤美妆",
@@ -112,6 +113,11 @@
   var state = {
     records: [],
     stores: [],
+    cart: [],
+    cartSearch: "",
+    cartAdding: false,
+    cartDraft: null,
+    pendingCartId: null,
     profile: { name: "物友", phone: "", avatar: "" },
     session: null,
     authMode: "login",
@@ -263,8 +269,9 @@
       return "";
     }
     return (
-      '<div class="section">⏰ 临期提醒</div>' +
-      '<div class="expiry-strip">' +
+      '<section class="home-module home-module-expiry">' +
+      '<div class="home-module-title">临期提醒</div>' +
+      '<div class="home-module-body"><div class="expiry-strip">' +
       list
         .map(function (x) {
           return (
@@ -289,7 +296,7 @@
           );
         })
         .join("") +
-      "</div>"
+      "</div></div></section>"
     );
   }
 
@@ -398,6 +405,55 @@
     try {
       localStorage.setItem(LS_STORES, JSON.stringify(state.stores));
     } catch (e) {}
+  }
+
+  function renderCartReminder() {
+    var items = pendingCart();
+    if (!items.length) return "";
+    var high = items.filter(function (item) { return item.priority === "high"; }).length;
+    return (
+      '<section class="home-module home-module-cart">' +
+      '<div class="home-module-title">待购买提醒</div>' +
+      '<div class="home-module-body"><div class="card cart-reminder">' +
+      '<div class="cart-reminder-main"><span class="cart-reminder-icon">🛍️</span>' +
+      '<span><b>还有 ' + items.length + ' 件想买的物品</b><small>' +
+      (high ? high + ' 件优先购买' : '记得下次购买时看看') +
+      '</small></span></div>' +
+      '<button class="link-btn" data-action="goto" data-to="#/cart">查看 ›</button>' +
+      '</div></div></section>'
+    );
+  }
+
+  function saveCart() {
+    try {
+      localStorage.setItem(LS_CART, JSON.stringify(state.cart));
+    } catch (e) {
+      toast("购物车保存失败，请检查本机存储空间");
+    }
+  }
+
+  function pendingCart() {
+    return state.cart
+      .filter(function (item) { return item.status === "pending"; })
+      .sort(function (a, b) {
+        var priority = { high: 0, normal: 1, low: 2 };
+        return (priority[a.priority] - priority[b.priority]) ||
+          (new Date(b.updatedAt) - new Date(a.updatedAt));
+      });
+  }
+
+  function cartItemForRecord(record) {
+    if (!record) return null;
+    return state.cart.find(function (item) {
+      return item.status === "pending" &&
+        (item.sourceRecordId === record.id ||
+          (item.name === record.name && item.brand === (record.brand || "") &&
+            item.category === (record.category || "")));
+    }) || null;
+  }
+
+  function cartPriorityLabel(priority) {
+    return priority === "high" ? "优先购买" : priority === "low" ? "不着急" : "想买";
   }
 
   function saveBarcodeCache() {
@@ -589,6 +645,98 @@
       createdat: r.createdAt || new Date().toISOString(),
       updatedat: r.updatedAt || new Date().toISOString()
     };
+  }
+
+  function cartToRow(item) {
+    return {
+      id: item.id,
+      owner: currentOwner(),
+      name: item.name || "",
+      note: item.note || "",
+      priority: item.priority || "normal",
+      sourcerecordid: item.sourceRecordId || null,
+      category: item.category || "",
+      image: item.image || null,
+      status: item.status || "pending",
+      createdat: item.createdAt || new Date().toISOString(),
+      purchasedat: item.purchasedAt || null,
+      updatedat: item.updatedAt || new Date().toISOString()
+    };
+  }
+
+  function rowToCart(row) {
+    return {
+      id: row.id,
+      name: row.name || "",
+      note: row.note || "",
+      priority: row.priority || "normal",
+      sourceRecordId: row.sourcerecordid || null,
+      category: row.category || "",
+      image: row.image || null,
+      status: row.status || "pending",
+      createdAt: row.createdat,
+      purchasedAt: row.purchasedat || null,
+      updatedAt: row.updatedat
+    };
+  }
+
+  function fetchCart() {
+    return cloudApi(
+      "/shopping_cart?select=*&owner=eq." + encodeURIComponent(currentOwner()) +
+        "&order=createdat.asc"
+    ).then(function (res) {
+      if (!res.ok) throw new Error("cloud " + res.status);
+      return res.json();
+    });
+  }
+
+  function upsertCartToCloud(item) {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi("/shopping_cart?on_conflict=id", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([cartToRow(item)])
+    }).catch(function () {});
+  }
+
+  function deleteCartInCloud(id) {
+    if (!cloudEnabled()) return Promise.resolve();
+    return cloudApi(
+      "/shopping_cart?id=eq." + encodeURIComponent(id) +
+        "&owner=eq." + encodeURIComponent(currentOwner()),
+      { method: "DELETE" }
+    ).catch(function () {});
+  }
+
+  function syncCartFromCloud() {
+    if (!cloudEnabled()) return Promise.resolve();
+    return fetchCart().then(function (cloudRows) {
+      var cloudById = {};
+      cloudRows.forEach(function (row) { cloudById[row.id] = row; });
+      var merged = state.cart.slice();
+      var localById = {};
+      merged.forEach(function (item) { localById[item.id] = item; });
+      cloudRows.forEach(function (row) {
+        var local = localById[row.id];
+        if (!local) merged.push(rowToCart(row));
+        else if (new Date(row.updatedat) > new Date(local.updatedAt)) {
+          merged[merged.indexOf(local)] = rowToCart(row);
+        }
+      });
+      state.cart = merged;
+      saveCart();
+      merged.forEach(function (item) {
+        var remote = cloudById[item.id];
+        if (!remote || new Date(item.updatedAt) > new Date(remote.updatedat)) {
+          upsertCartToCloud(item);
+        }
+      });
+      updateCartBadge();
+      if (parseHash().path === "cart" || parseHash().path === "home") route();
+    }).catch(function () {});
   }
 
   function rowToRecord(row) {
@@ -909,6 +1057,7 @@
         });
         route();
         syncStoresFromCloud();
+      syncCartFromCloud();
       })
       .catch(function () {
         state.cloudOk = false;
@@ -1091,6 +1240,13 @@
       state.stores = [];
     }
     try {
+      var cart = localStorage.getItem(LS_CART);
+      state.cart = cart ? JSON.parse(cart) : [];
+      if (!Array.isArray(state.cart)) state.cart = [];
+    } catch (e) {
+      state.cart = [];
+    }
+    try {
       var prof = localStorage.getItem(LS_PROFILE);
       if (prof)
         state.profile = Object.assign(
@@ -1111,6 +1267,14 @@
       saveRecords();
       localStorage.setItem(LS_SEEDED, "1");
     }
+  }
+
+  function updateCartBadge() {
+    var count = pendingCart().length;
+    document.querySelectorAll("[data-cart-count]").forEach(function (el) {
+      el.textContent = count;
+      el.hidden = !count;
+    });
   }
 
   function toast(msg) {
@@ -1252,17 +1416,18 @@
       '<span class="row-name">' +
       esc(r.name) +
       "</span>" +
-      (r.recommend === "yes"
-        ? '<span class="rec-flag" aria-hidden="true">👍</span>'
-        : r.recommend === "no"
-          ? '<span class="rec-flag" aria-hidden="true">👎</span>'
-          : "") +
       (cat ? '<span class="row-meta">' + esc(cat) + "</span>" : "") +
       (r.rating ? starsLine(r.rating) : "") +
       "</span>" +
+      '<span class="row-side">' +
+      (r.recommend === "yes"
+        ? '<span class="rec-flag" aria-label="推荐">👍</span>'
+        : r.recommend === "no"
+          ? '<span class="rec-flag" aria-label="不推荐">👎</span>'
+          : "") +
       '<span class="row-price">' +
       (r.price != null ? "¥" + esc(fmtMoney(r.price)) : "") +
-      "</span>" +
+      "</span></span>" +
       "</a>"
     );
   }
@@ -1364,19 +1529,22 @@
     var m = monthStats();
     var recs = sortedRecords().slice(0, 8);
     return (
-      '<div class="head">' +
-      "<div><div class=\"page-title\">你好，" +
+      '<div class="home-hero">' +
+      '<div class="home-topline"><div class="avatar" aria-hidden="true">' +
+      esc((state.profile.name || "禾").charAt(0)) +
+      '</div><div class="home-top-actions"><button class="home-reward" data-action="goto" data-to="#/review">本月回顾</button><button class="home-moon" aria-label="切换主题">◔</button></div></div>' +
+      '<div class="brand-kicker">LIFE INDEX · 物记生活索引</div>' +
+      '<div class="page-title home-title">你好，' +
       esc(state.profile.name) +
-      "</div>" +
+      '</div>' +
       '<div class="sub">连续记录 ' +
       streakDays() +
-      " 天 · 本月 " +
+      ' 天 · 本月 ' +
       m.count +
-      " 件</div></div>" +
-      '<div class="avatar" aria-hidden="true">' +
-      esc((state.profile.name || "禾").charAt(0)) +
-      "</div></div>" +
-      '<div class="overview">' +
+      ' 件</div>' +
+      '<div class="home-quick-actions"><button class="quick-action on" data-action="new-record">＋ 记录物品</button><button class="quick-action" data-action="goto" data-to="#/items">我的物品</button><button class="quick-action" data-action="goto" data-to="#/cart">待购买</button></div>' +
+      '</div>' +
+      '<div class="overview home-overview">' +
       '<div class="overview-top"><span style="font-size:12px;color:var(--muted);">' +
       monthPrefix().replace("-", " 年 ") +
       " 月概览</span>" +
@@ -1398,11 +1566,12 @@
       '<div class="note">本月记录了 ' +
       m.activeDays +
       " 天</div></div>" +
+      renderCartReminder() +
       renderExpiryStrip() +
-      '<div class="section">最近记录</div>' +
-      homeRecentHtml(recs) +
-      '<div class="home-spacer"></div>' +
-      '<div class="fixed-action"><button class="btn btn-primary" data-action="new-record">＋ 记录一件物品</button></div>'
+      '<section class="home-module home-module-recent">' +
+      '<div class="home-module-title home-recent-title">最近记录</div>' +
+      '<div class="home-module-body">' + homeRecentHtml(recs) + '</div></section>' +
+      '<div class="home-spacer"></div>'
     );
   }
 
@@ -1446,7 +1615,7 @@
         '">' +
         esc(l) +
         "</div>" +
-        '<div class="card">' +
+        '<div class="card home-recent-card">' +
         groups[l]
           .map(function (r) {
             return itemRow(r, "#/detail/r-" + r.id);
@@ -1573,6 +1742,7 @@
         var rating = latest.rating || 0;
         var repHigh = g.list.length >= 2;
         var repLow = !repHigh && rating > 0 && rating <= 2;
+        var cartItem = cartItemForRecord(latest);
         return (
           '<div class="card item-card">' +
           '<div class="item-head" data-action="toggle-items" data-key="' +
@@ -1607,9 +1777,11 @@
           g.list.length +
           "</b> 次</span></span>" +
           "</span>" +
-          '<button class="rebuy-btn" data-action="re-buy" data-id="' +
+          '<span class="item-actions">' +
+          '<button class="rebuy-btn" data-action="re-buy" data-id="' + esc(latest.id) + '">再买一次</button>' +
+          '<button class="rebuy-btn cart-rebuy-btn" data-action="' + (cartItem ? "cart-remove" : "cart-add-record") + '" data-id="' +
           esc(latest.id) +
-          '">再买一次</button>' +
+          '">' + (cartItem ? "已在购物车" : "加入购物车") + '</button></span>' +
           '<span class="item-chevron" aria-hidden="true">' +
           (expanded ? "▾" : "▸") +
           "</span>" +
@@ -1992,16 +2164,20 @@
       '">' +
       "</div>" +
       '<div class="hint" id="store-avg" style="text-align:left;margin-top:6px;">人均 ¥—</div>' +
-      '<div class="label">地点（搜索选择）</div>' +
+      '<div class="label">地点</div>' +
       (typeof WUJI_AMAP_KEY !== "undefined" && WUJI_AMAP_KEY
-        ? '<div>' +
+        ? '<div class="location-search-card">' +
+          '<div class="location-search-hint">输入店名或地址，从结果中选择；需要时再开启附近搜索。</div>' +
           '<div class="search-row" style="margin-top:0;">' +
           '<div class="search-box">' +
           '<span class="search-icon" aria-hidden="true">🔍</span>' +
           '<input class="input" id="store-loc-search" type="search" placeholder="搜索地点或店铺">' +
           "</div>" +
-          '<button class="btn btn-ghost map-search-btn" data-action="store-loc-search">搜索</button>' +
+          '<button class="btn btn-ghost map-search-btn" data-action="store-loc-search">查找</button>' +
           "</div>" +
+          '<button type="button" class="location-near-btn ' + (locSearchNearMe ? "on" : "") + '" data-action="store-loc-use">' +
+          (locSearchNearMe ? "✓ 附近搜索已开启" : "⌖ 使用当前位置缩小范围") +
+          "</button>" +
           '<div id="store-loc-results"></div>' +
           '<div id="store-loc-selected"></div>' +
           "</div>"
@@ -2036,6 +2212,7 @@
   var storeLocResults = null;
   var userLoc = null;
   var locUsedForSearch = false;
+  var locSearchNearMe = false;
 
   function fmtDist(m) {
     if (m == null || isNaN(m)) return "";
@@ -2153,7 +2330,7 @@
         toast("请输入要搜索的地点或店铺");
         return;
       }
-      getUserLoc(function (loc) {
+      var search = function (loc) {
         var place = new AMap.PlaceSearch({
           pageSize: 10,
           pageIndex: 1,
@@ -2172,14 +2349,16 @@
             toast("未找到该地点或店铺");
           }
         };
-        if (loc) {
+        if (loc && locSearchNearMe) {
           locUsedForSearch = true;
           place.searchNearBy(keyword, [loc.lng, loc.lat], 5000, done);
         } else {
           locUsedForSearch = false;
           place.search(keyword, done);
         }
-      });
+      };
+      if (locSearchNearMe) getUserLoc(search);
+      else search(userLoc);
     } catch (e) {}
   }
 
@@ -2281,13 +2460,7 @@
         i +
         '">★</button>';
     }
-    html +=
-      "</div>" +
-      '<span style="font-size:13px;color:var(--muted);margin-top:6px;display:inline-block;">' +
-      (state.editingStore.rating
-        ? state.editingStore.rating + " 星"
-        : "点击评分") +
-      "</span>";
+    html += "</div>";
     el.innerHTML = html;
   }
 
@@ -2531,6 +2704,49 @@
     );
   }
 
+  function renderCart() {
+    var items = pendingCart();
+    var high = items.filter(function (item) { return item.priority === "high"; }).length;
+    return (
+      '<div class="head"><div><div class="page-title">购物车</div>' +
+      '<div class="sub">' + items.length + ' 件待购买' + (high ? ' · ' + high + ' 件优先' : '') + '</div></div>' +
+      '<button class="icon-btn add-btn" data-action="cart-new" aria-label="新增待购">＋</button></div>' +
+      '<div class="cart-toolbar"><input class="input" id="cart-search" type="search" placeholder="在待购清单中搜索" value="' + esc(state.cartSearch) + '"></div>' +
+      (items.length ? '<div class="cart-list">' + items.filter(function (item) {
+        return !state.cartSearch || (item.name + ' ' + item.note).toLowerCase().indexOf(state.cartSearch.toLowerCase()) >= 0;
+      }).map(cartItemHtml).join('') + '</div>' :
+        '<div class="empty"><span class="e">🛒</span>购物车还是空的，看到想买的物品就加入吧</div>') +
+      ''
+    );
+  }
+
+  function cartItemHtml(item) {
+    var thumb = item.image && /^(https?:|data:image)/.test(item.image)
+      ? '<img src="' + esc(item.image) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">'
+      : esc(item.image || "🛒");
+    return '<div class="card cart-item">' +
+      '<span class="thumb">' + thumb + '</span>' +
+      '<div class="row-main"><div class="row-name">' + esc(item.name) + '</div>' +
+      '<div class="cart-meta"><span class="priority-' + esc(item.priority) + '">' + cartPriorityLabel(item.priority) + '</span>' +
+      (item.category ? ' · ' + esc(item.category) : '') + '</div>' +
+      (item.note ? '<div class="cart-note">' + esc(item.note) + '</div>' : '') + '</div>' +
+      '<div class="cart-actions"><button class="btn btn-primary btn-small" data-action="cart-purchased" data-id="' + esc(item.id) + '">已买到</button>' +
+      '<button class="cart-icon-action" data-action="cart-edit" data-id="' + esc(item.id) + '" aria-label="编辑待购" title="编辑待购">✎</button>' +
+      '<button class="cart-icon-action danger" data-action="cart-delete" data-id="' + esc(item.id) + '" aria-label="删除待购" title="删除待购">×</button></div></div>';
+  }
+
+  function renderCartForm() {
+    var d = state.cartDraft || { name: "", note: "", priority: "normal" };
+    return '<div class="topbar"><button class="icon-btn" data-action="cart-cancel" aria-label="返回">‹</button><h2>' +
+      (d.id ? "编辑待购" : "添加待购") + '</h2></div>' +
+      '<label class="label" for="cart-name">想买什么 *</label><input class="input" id="cart-name" data-cart-bind="name" maxlength="80" placeholder="比如：防晒霜" value="' + esc(d.name) + '">' +
+      '<label class="label" for="cart-note">备注（可选）</label><textarea class="textarea" id="cart-note" data-cart-bind="note" placeholder="规格、颜色、想买的原因……">' + esc(d.note) + '</textarea>' +
+      '<div class="label">优先级</div><div class="chips">' +
+      [{v:"high",t:"优先购买"},{v:"normal",t:"想买"},{v:"low",t:"不着急"}].map(function (x) {
+        return '<button type="button" class="chip ' + (d.priority === x.v ? 'on' : '') + '" data-action="cart-priority" data-value="' + x.v + '">' + x.t + '</button>';
+      }).join('') + '</div><button class="btn btn-primary" data-action="cart-save">保存待购</button>';
+  }
+
   function renderRecord() {
     var e = state.editing || newRecord();
     return (
@@ -2608,6 +2824,7 @@
   }
 
   function newRecord() {
+    state.pendingCartId = null;
     state.editing = {
       id: null,
       name: "",
@@ -2646,11 +2863,7 @@
         i +
         ' 星">★</button>';
     }
-    html +=
-      "</div>" +
-      '<span style="font-size:13px;color:var(--muted);margin-top:6px;display:inline-block;">' +
-      (e.rating ? e.rating + " 星" : "点击评分") +
-      "</span>";
+    html += "</div>";
     el.innerHTML = html;
   }
 
@@ -3052,11 +3265,14 @@
             "</div>" +
             '<div class="hint" style="text-align:left;margin-top:6px;">标记「已用完」后不再进入临期提醒</div>'
           : "") +
-        (r.comment
-          ? '<div class="label">我的短评</div><div class="quote">' +
+         (r.comment
+           ? '<div class="label">我的短评</div><div class="quote">' +
             esc(r.comment) +
             "</div>"
-          : "") +
+           : "") +
+        '<button class="btn btn-ghost" data-action="cart-add-record" data-id="' + esc(r.id) + '">' +
+        (cartItemForRecord(r) ? "已在购物车 · 移出" : "加入购物车") +
+        '</button>' +
         '<button class="btn btn-ghost" data-action="re-buy" data-id="' +
         esc(r.id) +
         '">再买一次</button>' +
@@ -3210,7 +3426,7 @@
   function renderScan() {
     return (
       '<div class="topbar">' +
-      '<button class="icon-btn" data-action="goto" data-to="#/home" aria-label="返回">‹</button>' +
+      '<button class="icon-btn" data-action="goto" data-to="#/record" aria-label="返回">‹</button>' +
       "<h2>扫码</h2>" +
       '<button class="link-btn" data-action="goto" data-to="#/record">手动填写</button></div>' +
       '<video class="scan-video" id="scan-video" muted playsinline></video>' +
@@ -3235,6 +3451,8 @@
   var VIEWS = {
     home: renderHome,
     items: renderItems,
+    cart: renderCart,
+    "cart-form": renderCartForm,
     stores: renderStores,
     "store-record": renderStoreRecord,
     "store-detail": renderStoreDetail,
@@ -3255,6 +3473,7 @@
       r.path === "home" ||
       r.path === "items" ||
       r.path === "stores" ||
+      r.path === "cart" ||
       r.path === "profile"
         ? r.path
         : state.lastTab;
@@ -3262,6 +3481,7 @@
       r.path === "home" ||
       r.path === "items" ||
       r.path === "stores" ||
+      r.path === "cart" ||
       r.path === "profile"
     ) {
       state.lastTab = r.path;
@@ -3280,6 +3500,7 @@
     if (r.path === "scan") {
       startScanner();
     }
+    updateCartBadge();
     window.scrollTo(0, 0);
   }
 
@@ -3595,9 +3816,98 @@
     }
     saveRecords();
     if (savedRec) upsertRecordToCloud(savedRec);
+    if (savedRec && state.pendingCartId) {
+      var purchasedItem = state.cart.find(function (item) { return item.id === state.pendingCartId; });
+      if (purchasedItem) {
+        purchasedItem.status = "purchased";
+        purchasedItem.purchasedAt = now;
+        purchasedItem.updatedAt = now;
+        purchasedItem.sourceRecordId = savedRec.id;
+        saveCart();
+        upsertCartToCloud(purchasedItem);
+      }
+      state.pendingCartId = null;
+    }
     state.editing = null;
     toast("已保存");
     location.hash = "#/home";
+  }
+
+  function addCartItemFromRecord(record) {
+    if (!record || cartItemForRecord(record)) {
+      toast("这件物品已经在购物车里");
+      return;
+    }
+    var now = new Date().toISOString();
+    var item = {
+      id: "cart-" + uid(),
+      name: record.name || "",
+      note: "",
+      priority: "normal",
+      sourceRecordId: record.id,
+      category: record.category || "",
+      image: record.photo || record.emoji || "🛒",
+      status: "pending",
+      createdAt: now,
+      purchasedAt: null,
+      updatedAt: now
+    };
+    state.cart.push(item);
+    saveCart();
+    upsertCartToCloud(item);
+    updateCartBadge();
+    if (parseHash().path === "items") route();
+    toast("已加入购物车");
+  }
+
+  function beginCartFromRecord(record) {
+    if (!record) return;
+    var existing = cartItemForRecord(record);
+    if (existing) {
+      state.cart = state.cart.filter(function (item) { return item.id !== existing.id; });
+      saveCart();
+      deleteCartInCloud(existing.id);
+      updateCartBadge();
+      route();
+      toast("已移出购物车");
+      return;
+    }
+    addCartItemFromRecord(record);
+  }
+
+  function purchaseCartItem(id) {
+    var item = state.cart.find(function (x) { return x.id === id; });
+    if (!item) return;
+    newRecord();
+    state.pendingCartId = item.id;
+    state.editing.name = item.name;
+    state.editing.category = item.category || "";
+    state.editing.emoji = item.image && item.image.length <= 4 ? item.image : "📦";
+    state.editing.comment = item.note || "";
+    location.hash = "#/record";
+    toast("已带入记录表单，补充购买信息后保存");
+  }
+
+  function saveCartDraft() {
+    var d = state.cartDraft;
+    if (!d || !String(d.name || "").trim()) {
+      toast("请填写想买的物品名称");
+      return;
+    }
+    var now = new Date().toISOString();
+    if (d.id) {
+      var idx = state.cart.findIndex(function (x) { return x.id === d.id; });
+      if (idx >= 0) state.cart[idx] = Object.assign({}, state.cart[idx], d, { name: d.name.trim(), updatedAt: now });
+    } else {
+      state.cart.push(Object.assign({}, d, { id: "cart-" + uid(), name: d.name.trim(), status: "pending", createdAt: now, updatedAt: now }));
+    }
+    var saved = state.cart.find(function (x) { return x.id === d.id; }) || state.cart[state.cart.length - 1];
+    saveCart();
+    upsertCartToCloud(saved);
+    state.cartDraft = null;
+    updateCartBadge();
+    location.hash = "#/cart";
+    toast("已保存待购");
   }
 
   document.getElementById("app").addEventListener("click", function (ev) {
@@ -3634,6 +3944,54 @@
     if (action === "new-record") {
       newRecord();
       location.hash = "#/record";
+      return;
+    }
+    if (action === "cart-add-record" || action === "cart-remove") {
+      var cartRecord = state.records.find(function (x) { return x.id === el.getAttribute("data-id"); });
+      if (cartRecord) beginCartFromRecord(cartRecord);
+      return;
+    }
+    if (action === "cart-new") {
+      state.cartDraft = { id: null, name: "", note: "", priority: "normal" };
+      location.hash = "#/cart-form";
+      return;
+    }
+    if (action === "cart-edit") {
+      var editCart = state.cart.find(function (x) { return x.id === el.getAttribute("data-id"); });
+      if (editCart) {
+        state.cartDraft = Object.assign({}, editCart);
+        location.hash = "#/cart-form";
+      }
+      return;
+    }
+    if (action === "cart-cancel") {
+      state.cartDraft = null;
+      location.hash = "#/cart";
+      return;
+    }
+    if (action === "cart-priority") {
+      if (state.cartDraft) state.cartDraft.priority = value || "normal";
+      route();
+      return;
+    }
+    if (action === "cart-save") {
+      saveCartDraft();
+      return;
+    }
+    if (action === "cart-purchased") {
+      purchaseCartItem(el.getAttribute("data-id"));
+      return;
+    }
+    if (action === "cart-delete") {
+      var deleteCartId = el.getAttribute("data-id");
+      if (confirm("确定从购物车删除这件待购物品吗？")) {
+        state.cart = state.cart.filter(function (x) { return x.id !== deleteCartId; });
+        saveCart();
+        deleteCartInCloud(deleteCartId);
+        updateCartBadge();
+        route();
+        toast("已删除");
+      }
       return;
     }
     if (action === "open-filter") {
@@ -3894,6 +4252,11 @@
       ensureAmap(runStoreLocSearch);
       return;
     }
+    if (action === "store-loc-use") {
+      locSearchNearMe = !locSearchNearMe;
+      route();
+      return;
+    }
     if (action === "store-loc-pick") {
       var idx = Number(el.getAttribute("data-index"));
       if (storeLocResults && storeLocResults[idx]) {
@@ -4039,7 +4402,7 @@
     }
     if (action === "export") {
       var blob = new Blob(
-        [JSON.stringify({ profile: state.profile, records: state.records }, null, 2)],
+        [JSON.stringify({ profile: state.profile, records: state.records, stores: state.stores, cart: state.cart }, null, 2)],
         { type: "application/json" }
       );
       var a = document.createElement("a");
@@ -4086,6 +4449,17 @@
       var ws = XLSX.utils.json_to_sheet(rows);
       var wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "物记数据");
+      var cartRows = state.cart.map(function (item) {
+        return {
+          "物品名称": item.name || "",
+          "备注": item.note || "",
+          "优先级": cartPriorityLabel(item.priority),
+          "状态": item.status === "purchased" ? "已买到" : "待购买",
+          "添加日期": item.createdAt ? item.createdAt.slice(0, 10) : "",
+          "买到日期": item.purchasedAt ? item.purchasedAt.slice(0, 10) : ""
+        };
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cartRows), "购物车");
       XLSX.writeFile(wb, "物记数据导出.xlsx");
       toast("已导出 Excel");
       return;
@@ -4098,6 +4472,14 @@
       state.itemsSearch = t.value;
       var listEl = document.getElementById("items-list");
       if (listEl) listEl.innerHTML = itemsListHtml();
+      return;
+    }
+    if (t.id === "cart-search") {
+      state.cartSearch = t.value;
+      var cartList = document.querySelector(".cart-list");
+      if (cartList) cartList.innerHTML = pendingCart().filter(function (item) {
+        return !state.cartSearch || (item.name + " " + item.note).toLowerCase().indexOf(state.cartSearch.toLowerCase()) >= 0;
+      }).map(cartItemHtml).join("");
       return;
     }
     if (t.id === "rec-produced") {
@@ -4114,7 +4496,10 @@
       return;
     }
     var bind = t.getAttribute("data-bind");
-    if (state.editing && bind) {
+    var cartBind = t.getAttribute("data-cart-bind");
+    if (state.cartDraft && cartBind) {
+      state.cartDraft[cartBind] = t.value;
+    } else if (state.editing && bind) {
       state.editing[bind] = t.value;
     } else if (state.editingStore && bind) {
       state.editingStore[bind] = t.value;
