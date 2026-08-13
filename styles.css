@@ -174,6 +174,10 @@ button {
   margin-top: 4px;
 }
 
+.home-overview .note {
+  display: none;
+}
+
 .sub {
   font-size: 11px;
   color: var(--muted);
@@ -415,7 +419,17 @@ button {
 
 .home-module-cart .home-module-body,
 .home-module-expiry .home-module-body {
-  margin-left: 8px;
+  margin-left: 0;
+}
+
+.home-module-cart .home-module-body {
+  width: min(380px, 100%);
+  margin-top: 8px;
+}
+
+.home-module-cart .cart-reminder {
+  width: min(380px, 100%);
+  margin-left: 10px;
 }
 
 .home-module-cart .cart-reminder,
@@ -435,6 +449,10 @@ button {
   background: transparent;
 }
 
+.home-module-expiry .expiry-card {
+  margin-left: 10px;
+}
+
 .home-module-recent .home-module-body {
   padding: 0 8px 8px;
   border-left: 2px solid var(--accent-soft);
@@ -446,15 +464,21 @@ button {
 }
 
 .home-recent-card {
-  margin-top: 0;
-  width: calc(100% - 8px);
+  margin-top: 10px;
+  width: min(380px, 100%);
   background: var(--surface);
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .home-recent-card .row {
-  min-height: 80px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  min-height: 76px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.home-recent-card .row + .row {
+  margin-top: 10px;
 }
 
 .home-recent-card .thumb {
@@ -601,6 +625,8 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 4px;
 }
 
 .chip.on {
@@ -650,7 +676,10 @@ button {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
-  padding: 12px 14px;
+  height: 40px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+  padding: 8px 14px;
   font-size: 14px;
   color: var(--text);
   cursor: pointer;
@@ -941,11 +970,25 @@ button {
   line-height: 1.25;
 }
 
-.item-head .item-actions {
-  width: 100%;
-  margin-left: 60px;
+.item-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.item-meta-row .item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
   justify-content: flex-end;
-  padding-top: 4px;
+}
+
+.item-meta-row .rebuy-btn {
+  padding: 6px 9px;
+  font-size: 12px;
 }
 
 .item-kv {
@@ -956,16 +999,25 @@ button {
   margin-top: 4px;
 }
 
+.store-meta-row {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.store-meta-row .item-kv {
+  margin-top: 0;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.store-meta-row .item-actions {
+  flex: none;
+}
+
 .item-price {
   font-size: 13px;
   font-weight: 700;
   color: var(--accent);
-}
-
-.item-chevron {
-  color: var(--muted);
-  font-size: 12px;
-  flex: none;
 }
 
 .purchase-list {
@@ -1010,12 +1062,35 @@ button {
 }
 
 .purchase-row {
+  height: 50px;
+  margin-bottom: -10px;
   padding: 10px 2px;
   border-bottom: 1px dashed var(--border);
 }
 
 .purchase-row:last-child {
   border-bottom: 0;
+}
+
+.store-purchase-list {
+  padding: 8px 0 0;
+  margin-top: 4px;
+}
+
+.store-purchase-row {
+  height: 52px;
+  margin-bottom: 0;
+  padding: 8px 2px;
+  gap: 10px;
+}
+
+.store-purchase-row .row-main {
+  justify-content: center;
+  gap: 2px;
+}
+
+.store-purchase-row .stars-line {
+  margin-top: 0;
 }
 
 .purchase-badge {
@@ -1173,7 +1248,7 @@ button {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  padding: 0;
+  padding: 0 0 3px;
 }
 
 .expiry-strip {
@@ -1495,6 +1570,9 @@ button:active:not(:disabled) { transform: translateY(0); }
 .input,
 .textarea {
   width: 100%;
+  height: 40px;
+  margin-top: 4px;
+  margin-bottom: 4px;
   border: 1px solid var(--border);
   border-radius: 14px 14px 5px 14px;
   background: var(--surface);
@@ -1505,6 +1583,7 @@ button:active:not(:disabled) { transform: translateY(0); }
 }
 
 .textarea {
+  height: auto;
   min-height: 66px;
   resize: vertical;
 }
@@ -1519,13 +1598,15 @@ button:active:not(:disabled) { transform: translateY(0); }
 .label {
   font-size: 17px;
   color: #000;
-  margin: 0 0 10px 8px !important;
+  margin: 6px 0 6px 6px !important;
   letter-spacing: 0.04em;
 }
 
 .star-row {
   display: flex;
   gap: 4px;
+  margin-top: 4px;
+  margin-bottom: 4px;
 }
 
 .star-btn {
@@ -1545,7 +1626,7 @@ button:active:not(:disabled) { transform: translateY(0); }
 .tool-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1799,12 +1880,18 @@ button.big-thumb {
   white-space: nowrap;
 }
 
+.photo-actions + * {
+  margin-top: 4px;
+}
+
 .topbar > .icon-btn:first-child {
   width: 52px;
   height: 52px;
   min-width: 52px;
   min-height: 52px;
-  font-size: 30px;
+  font-size: 60px;
+  margin-left: -10px;
+  margin-bottom: 5px;
 }
 
 .empty {

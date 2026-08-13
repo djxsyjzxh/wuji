@@ -1755,35 +1755,18 @@
           '<span class="row-name item-name-full">' +
           esc(latest.name) +
           "</span>" +
-          '<span class="item-kv">' +
-          (function () {
-            var dl =
-              latest.expiryDate &&
-              latest.status !== "finished" &&
-              latest.status !== "abandoned"
-                ? daysLeft(latest.expiryDate)
-                : null;
-            return dl != null && dl <= 30
-              ? '<span class="epill ' +
-                expiryBadgeClass(dl) +
-                '">⏰ ' +
-                expiryLabel(dl) +
-                "</span>"
-              : "";
-          })() +
+          '<span class="item-meta-row">' +
           '<span class="buy-count' +
           (repHigh ? " rep-high" : repLow ? " rep-low" : "") +
           '">已买 <b>' +
           g.list.length +
-          "</b> 次</span></span>" +
-          "</span>" +
+          "</b> 次</span>" +
           '<span class="item-actions">' +
           '<button class="rebuy-btn" data-action="re-buy" data-id="' + esc(latest.id) + '">再买一次</button>' +
           '<button class="rebuy-btn cart-rebuy-btn" data-action="' + (cartItem ? "cart-remove" : "cart-add-record") + '" data-id="' +
           esc(latest.id) +
           '">' + (cartItem ? "已在购物车" : "加入购物车") + '</button></span>' +
-          '<span class="item-chevron" aria-hidden="true">' +
-          (expanded ? "▾" : "▸") +
+          "</span>" +
           "</span>" +
           "</div>" +
           '<div class="purchase-list"' +
@@ -1966,7 +1949,7 @@
 
   function storeVisitRow(s, i) {
     return (
-      '<a class="row purchase-row" href="#/store-detail/r-' +
+      '<a class="row purchase-row store-purchase-row" href="#/store-detail/r-' +
       s.id +
       '">' +
       '<span class="purchase-badge" aria-hidden="true">' +
@@ -2022,6 +2005,7 @@
               ? ' <span class="rec-flag" aria-hidden="true">👎</span>'
               : "") +
           "</span>" +
+          '<span class="item-meta-row store-meta-row">' +
           '<span class="item-kv">' +
           (l.category
             ? '<span class="mini-tag">' + esc(l.category) + "</span>"
@@ -2038,15 +2022,12 @@
           g.list.length +
           "</b> 次</span>" +
           "</span>" +
-          "</span>" +
-          '<button class="rebuy-btn" data-action="re-visit" data-id="' +
+          '<span class="item-actions"><button class="rebuy-btn" data-action="re-visit" data-id="' +
           esc(l.id) +
-          '">再访一次</button>' +
-          '<span class="item-chevron" aria-hidden="true">' +
-          (expanded ? "▾" : "▸") +
+          '">再访一次</button></span>' +
           "</span>" +
           "</div>" +
-          '<div class="purchase-list"' +
+          '<div class="purchase-list store-purchase-list"' +
           (expanded ? "" : " hidden") +
           ">" +
           g.list
