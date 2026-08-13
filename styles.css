@@ -920,11 +920,32 @@ button {
 
 .item-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 2px 0 12px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
+}
+
+.item-head .row-main {
+  min-width: 0;
+  flex: 1 1 calc(100% - 62px);
+}
+
+.item-name-full {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.item-head .item-actions {
+  width: 100%;
+  margin-left: 60px;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .item-kv {
@@ -1129,7 +1150,7 @@ button {
 .rebuy-btn {
   border: 1px solid var(--accent);
   background: none;
-  color: var(--accent);
+  color: #000;
   border-radius: 10px;
   padding: 7px 10px;
   font-size: 12px;
@@ -1148,6 +1169,11 @@ button {
   font-size: 24px;
   font-weight: 400;
   box-shadow: var(--shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
 }
 
 .expiry-strip {
@@ -1430,7 +1456,7 @@ button {
 .cart-item { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-top: 10px; }
 .cart-item .thumb { flex: 0 0 42px; }
 .item-actions { display: flex; gap: 5px; align-items: center; }
-.cart-rebuy-btn { color: var(--accent); background: var(--accent-soft); }
+.cart-rebuy-btn { color: #000; background: var(--accent-soft); }
 .cart-actions { display: flex; flex-direction: row; align-items: center; gap: 8px; width: 100%; margin-left: 52px; padding-top: 10px; border-top: 1px solid var(--border); }
 .cart-actions .btn-small { flex: 1; height: 36px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; margin: 0; }
 .cart-icon-action { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-2); color: var(--text); font-size: 19px; line-height: 1; box-shadow: none; }

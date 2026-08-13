@@ -1752,7 +1752,7 @@
           esc(recordEmoji(latest)) +
           "</span>" +
           '<span class="row-main">' +
-          '<span class="row-name">' +
+          '<span class="row-name item-name-full">' +
           esc(latest.name) +
           "</span>" +
           '<span class="item-kv">' +
@@ -2730,8 +2730,7 @@
     return '<div class="card cart-item">' +
       '<span class="thumb">' + thumb + '</span>' +
       '<div class="row-main"><div class="row-name">' + esc(item.name) + '</div>' +
-      '<div class="cart-meta"><span class="priority-' + esc(item.priority) + '">' + cartPriorityLabel(item.priority) + '</span>' +
-      (item.category ? ' · ' + esc(item.category) : '') + '</div>' +
+      (item.category ? '<div class="cart-meta">' + esc(item.category) + '</div>' : '') +
       (item.note ? '<div class="cart-note">' + esc(item.note) + '</div>' : '') + '</div>' +
       '<div class="cart-actions"><button class="btn btn-primary btn-small" data-action="cart-purchased" data-id="' + esc(item.id) + '">已买到</button>' +
       '<button class="cart-icon-action" data-action="cart-edit" data-id="' + esc(item.id) + '" aria-label="编辑待购" title="编辑待购">✎</button>' +
