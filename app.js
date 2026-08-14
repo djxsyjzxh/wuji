@@ -3338,7 +3338,7 @@
           '<button class="btn btn-primary" data-action="open-auth">登录 / 注册</button>' +
           "</div>") +
       '<div class="section">数据</div>' +
-      '<div class="card">' +
+      '<div class="card profile-data-card">' +
       '<a class="row" href="#/review" style="cursor:pointer;">' +
       '<span class="thumb" style="width:36px;height:36px;font-size:16px;" aria-hidden="true">📊</span>' +
       '<span class="row-main"><span class="row-name">月度复盘</span><span class="row-meta">本月 ' +
@@ -3391,13 +3391,17 @@
     var abandoned = item.status === "abandoned";
     var purchased = item.status === "purchased";
     var menuOpen = state.cartMenuId === item.id;
+    var sourceRecord = item.sourceRecordId
+      ? state.records.find(function (record) { return record.id === item.sourceRecordId; })
+      : null;
+    var brand = item.brand || (sourceRecord && sourceRecord.brand) || "";
     var thumb = item.image && /^(https?:|data:image)/.test(item.image)
       ? '<img src="' + esc(item.image) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">'
       : esc(item.image || "🛒");
     return '<div class="card cart-item">' +
       '<span class="thumb">' + thumb + '</span>' +
       '<div class="row-main"><div class="row-name">' + esc(item.name) + '</div>' +
-      (item.category ? '<div class="cart-meta">' + esc(item.category) + '</div>' : '') +
+      (brand ? '<div class="cart-meta">' + esc(brand) + '</div>' : '') +
       (item.note ? '<div class="cart-note">' + esc(item.note) + '</div>' : '') + '</div>' +
       '<div class="cart-actions">' +
       (abandoned
@@ -4203,7 +4207,7 @@
       "<h2>" +
       monthPrefix().replace("-", " 年 ") +
       " 月复盘</h2>" +
-      '<button class="icon-btn" data-action="goto" data-to="#/home" aria-label="关闭">×</button></div>' +
+      '<button class="icon-btn review-close" data-action="goto" data-to="#/home" aria-label="关闭">×</button></div>' +
       '<div class="stat-grid">' +
       '<div class="stat"><b>' +
       m.count +
@@ -4219,7 +4223,7 @@
       "%</b><span>实际回购率</span></div>" +
       '<div class="stat"><b>' + m.willingCount + "</b><span>愿意回购</span></div></div>" +
       (m.best
-        ? '<div class="card" style="margin-top:12px;">' +
+         ? '<div class="card review-highlight" style="margin-top:12px;">' +
           '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;">🏆 本月最佳</div>' +
           '<div class="row" style="cursor:default;">' +
           '<span class="thumb" aria-hidden="true">' +
