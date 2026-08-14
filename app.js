@@ -1803,33 +1803,10 @@
       ' 件</div>' +
       '<div class="home-quick-actions"><button class="quick-action on" data-action="new-record">＋ 记录一件东西</button><button class="quick-action" data-action="goto" data-to="#/items">我的物品</button><button class="quick-action" data-action="goto" data-to="#/cart">想买清单</button></div>' +
       '</div>' +
+      renderExpiryStrip() +
       '<section class="home-module home-module-recent home-recent-first">' +
       '<div class="home-module-title home-recent-title">最近发生</div>' +
       '<div class="home-module-body">' + homeRecentHtml(recs) + '</div></section>' +
-      '<div class="overview home-overview">' +
-      '<div class="overview-top"><span style="font-size:12px;color:var(--muted);">' +
-      monthPrefix().replace("-", " 年 ") +
-      " 月概览</span>" +
-      '<button class="link-btn" data-action="goto" data-to="#/review">看复盘 ›</button></div>' +
-      '<div class="ov-stats">' +
-      '<div class="ov-stat"><div class="ov-num">' +
-      m.count +
-      '</div><div class="ov-label">本月记录</div></div>' +
-      '<div class="ov-stat"><div class="ov-num">' +
-      (m.avg ? m.avg.toFixed(1) : "—") +
-      '</div><div class="ov-label">平均评分</div></div>' +
-      '<div class="ov-stat"><div class="ov-num">' +
-      Math.round(m.repurchaseRate * 100) +
-      '%</div><div class="ov-label">实际回购</div></div>' +
-      '<div class="ov-stat"><div class="ov-num">' +
-      (m.totalSpend ? "¥" + fmtMoney(m.totalSpend) : "—") +
-      '</div><div class="ov-label">本月花费</div></div>' +
-      "</div>" +
-      '<div class="note">本月记录了 ' +
-      m.activeDays +
-      " 天</div></div>" +
-      renderCartReminder() +
-      renderExpiryStrip() +
       '<div class="home-spacer"></div>'
     );
   }
@@ -2015,7 +1992,6 @@
       .map(function (g) {
         var latest = g.list[g.list.length - 1];
         var rating = productRating(g.list);
-        var spend = productSpend(g.list);
         var repHigh = g.list.length >= 2;
         var repLow = !repHigh && rating != null && rating <= 2;
         var cartItem = cartItemForRecord(latest);
@@ -2040,7 +2016,6 @@
           '">已买 <b>' +
           g.list.length +
           "</b> 次</span>" +
-          (spend > 0 ? '<span class="item-spend">¥' + esc(fmtMoney(spend)) + '</span>' : '') +
           '<span class="item-actions">' +
           '<button class="rebuy-btn" data-action="re-buy" data-id="' + esc(latest.id) + '">再买一次</button>' +
           '<button class="rebuy-btn cart-rebuy-btn" data-action="' + (cartItem ? "cart-remove" : "cart-add-record") + '" data-id="' +
@@ -2810,7 +2785,7 @@
         "</h2>" +
         '<button class="icon-btn" data-action="edit-store" data-id="' +
         esc(s.id) +
-        '" aria-label="编辑">✎</button></div>' +
+        '" aria-label="编辑">📝</button></div>' +
         (s.photo
           ? '<button class="big-thumb big-photo" data-action="view-photo" data-src="' +
             s.photo +
@@ -3680,9 +3655,6 @@
         "</div></div>" +
         '<div><div class="kv-label">价格</div><div class="kv-value">' +
         (r.price != null ? "¥" + fmtMoney(r.price) : "未填") +
-        "</div></div>" +
-        '<div><div class="kv-label">回购</div><div class="kv-value">' +
-        esc(repurchaseText(r)) +
         "</div></div>" +
         '<div><div class="kv-label">记录时间</div><div class="kv-value">' +
         esc(fmtDate(r.createdAt)) +

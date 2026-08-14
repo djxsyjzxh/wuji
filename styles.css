@@ -1726,7 +1726,7 @@ body {
 .home-module-body { margin-top: 10px; }
 .home-recent-card { width: 100%; margin-top: 8px; border-radius: 16px; padding: 8px 14px; }
 .home-recent-card .row { min-height: 68px; }
-.home-recent-card .row + .row { margin-top: 2px; border-top: 1px solid var(--border); }
+.home-recent-card .row + .row { margin-top: 0; border-top: 0; }
 .home-recent-card .thumb { width: 42px; height: 42px; }
 .home-date-label { margin-top: 14px; margin-bottom: 5px; }
 .home-module-cart .home-module-body { width: 100%; }
@@ -1734,6 +1734,18 @@ body {
 .home-module-expiry .expiry-card { margin-left: 10px; }
 .home-module-recent .home-module-body { padding-left: 0; border-left: 0; }
 .home-spacer { height: 24px; }
+
+.expiry-wrap input[type="date"] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 40px;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.2;
+}
 
 .search-row { margin-top: 14px; }
 .search-row .input { height: 42px; }
@@ -2245,8 +2257,21 @@ button.big-thumb {
 .product-detail-stats { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; color: var(--muted); font-size: 12px; }
 .product-detail-stats > span:first-child { color: var(--accent-strong); font-weight: 700; }
 .product-timeline-title { margin-top: 20px; }
-.product-timeline { padding: 8px 14px; }
-.product-timeline .purchase-row { margin-bottom: 0; padding: 10px 0; }
+.product-timeline { padding: 8px 12px; overflow: hidden; }
+.product-timeline .purchase-row {
+  width: 100%;
+  height: auto;
+  min-height: 72px;
+  margin: 0;
+  padding: 10px 8px;
+  gap: 10px;
+  align-items: center;
+  box-sizing: border-box;
+}
 .product-timeline .purchase-row:last-child { border-bottom: 0; }
+.product-timeline-row .row-main { min-width: 0; justify-content: center; align-items: flex-start; }
+.product-timeline-row .purchase-date { margin-top: 0; }
+.product-timeline-row .product-purchase-meta { line-height: 1.35; overflow-wrap: anywhere; }
+.product-timeline-row .purchase-side { margin-left: auto; align-self: center; flex: none; }
 .product-purchase-meta { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
 .product-timeline .purchase-side { color: var(--muted); font-size: 20px; }
