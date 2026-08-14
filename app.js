@@ -8,6 +8,10 @@
   var LS_BARCODE = "wuji.barcode.v1";
   var LS_SESSION = "wuji.session.v1";
   var LS_CART = "wuji.cart.v1";
+  var LS_PRODUCTS = "wuji.products.v1";
+  var LS_PURCHASES = "wuji.purchases.v1";
+  var LS_EXPERIENCES = "wuji.experiences.v1";
+  var LS_WISHLISTS = "wuji.wishlists.v1";
 
   var CATEGORIES = [
     "护肤美妆",
@@ -114,7 +118,13 @@
     records: [],
     stores: [],
     cart: [],
+    products: [],
+    purchases: [],
+    experiences: [],
+    wishlists: [],
     cartSearch: "",
+    cartView: "all",
+    cartMenuId: null,
     cartAdding: false,
     cartDraft: null,
     pendingCartId: null,
@@ -123,6 +133,7 @@
     authMode: "login",
     editingNick: false,
     itemsSearch: "",
+    itemsView: "all",
     itemsFilter: {
       category: "",
       rating: "",
@@ -136,6 +147,9 @@
     expandedStores: {},
     editingStore: null,
     editing: null,
+    recordStage: "name",
+    recordDetailsOpen: false,
+    photoRecognitionPending: false,
     barcodeCache: {},
     lastTab: "home",
     scanRaf: null,
@@ -332,7 +346,55 @@
     });
   }
 
+  function productIdForRecord(record) {
+    return stableModelId("product-", legacyProductKey(record));
+  }
+
+  function productRecords(productId) {
+    return state.records
+      .filter(function (record) {
+        return productIdForRecord(record) === productId;
+      })
+      .sort(function (a, b) {
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      });
+  }
+
+  function productForId(productId, list) {
+    var product = state.products.find(function (item) {
+      return item.id === productId;
+    });
+    if (product) return product;
+    var first = list && list[0];
+    return first ? {
+      id: productId,
+      name: first.name || "",
+      brand: first.brand || "",
+      category: first.category || "",
+      subcategory: first.subcategory || "",
+      emoji: first.emoji || "📦",
+      imageUrl: first.photo || null
+    } : null;
+  }
+
+  function productRating(list) {
+    var rated = list.filter(function (record) { return Number(record.rating) > 0; });
+    if (!rated.length) return null;
+    return rated.reduce(function (sum, record) {
+      return sum + Number(record.rating);
+    }, 0) / rated.length;
+  }
+
+  function productSpend(list) {
+    return list.reduce(function (sum, record) {
+      var price = Number(record.price);
+      return sum + (isNaN(price) ? 0 : price);
+    }, 0);
+  }
+
   function repurchaseText(r) {
+    if (r.repurchase === "yes") return "会回购";
+    if (r.repurchase === "no") return "不会回购";
     var same = recordsByKey(itemKey(r));
     return same.length >= 2
       ? "已回购 " + (same.length - 1) + " 次"
@@ -399,6 +461,7 @@
     } catch (e) {
       toast("保存失败：本地存储空间不足，可先删除带照片的记录");
     }
+    syncNormalizedFromLegacy();
   }
 
   function saveStores() {
@@ -413,13 +476,13 @@
     var high = items.filter(function (item) { return item.priority === "high"; }).length;
     return (
       '<section class="home-module home-module-cart">' +
-      '<div class="home-module-title">待购买提醒</div>' +
+      '<div class="home-module-title">想买提醒</div>' +
       '<div class="home-module-body"><div class="card cart-reminder">' +
       '<div class="cart-reminder-main"><span class="cart-reminder-icon">🛍️</span>' +
       '<span><b>还有 ' + items.length + ' 件想买的物品</b><small>' +
       (high ? high + ' 件优先购买' : '记得下次购买时看看') +
       '</small></span></div>' +
-      '<button class="link-btn" data-action="goto" data-to="#/cart">查看 ›</button>' +
+      '<button class="link-btn" data-action="goto" data-to="#/cart">去看看 ›</button>' +
       '</div></div></section>'
     );
   }
@@ -430,6 +493,166 @@
     } catch (e) {
       toast("购物车保存失败，请检查本机存储空间");
     }
+    syncNormalizedFromLegacy();
+  }
+
+  /* ---------- 标准化领域模型（兼容旧 records/cart） ---------- */
+
+  function normalizeProductName(name) {
+    return String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s\-_·•/\\（）()【】\[\]，,。.!！?？：:]+/g, "");
+  }
+
+  function normalizeBarcode(barcode) {
+    return String(barcode || "").replace(/\D/g, "");
+  }
+
+  function stableModelId(prefix, key) {
+    var hash = 2166136261;
+    String(key || "").split("").forEach(function (ch) {
+      hash ^= ch.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    });
+    return prefix + Math.abs(hash >>> 0).toString(36);
+  }
+
+  function legacyProductKey(record) {
+    var name = normalizeProductName(record && record.name);
+    if (name) return "name:" + name;
+    var barcode = normalizeBarcode(record && record.barcode);
+    if (barcode) return "barcode:" + barcode;
+    return [
+      "brand:" + normalizeProductName(record && record.brand),
+      "category:" + normalizeProductName(record && record.category)
+    ].join("|");
+  }
+
+  function modelRepurchaseValue(value) {
+    if (value === "yes" || value === "YES") return "YES";
+    if (value === "no" || value === "NO") return "NO";
+    return "UNSURE";
+  }
+
+  function modelWishlistStatus(value) {
+    if (value === "purchased" || value === "PURCHASED") return "PURCHASED";
+    if (value === "abandoned" || value === "archived" || value === "ABANDONED") return "ABANDONED";
+    return "WANT";
+  }
+
+  function saveNormalizedModel() {
+    var entries = [
+      [LS_PRODUCTS, state.products],
+      [LS_PURCHASES, state.purchases],
+      [LS_EXPERIENCES, state.experiences],
+      [LS_WISHLISTS, state.wishlists]
+    ];
+    entries.forEach(function (entry) {
+      try {
+        localStorage.setItem(entry[0], JSON.stringify(entry[1]));
+      } catch (e) {}
+    });
+  }
+
+  function syncNormalizedFromLegacy() {
+    var productByKey = {};
+    var products = [];
+    var purchases = [];
+    var experiences = [];
+    var recordToProduct = {};
+
+    state.records.forEach(function (record) {
+      var key = legacyProductKey(record);
+      var product = productByKey[key];
+      if (!product) {
+        product = {
+          id: stableModelId("product-", key),
+          userId: currentOwner(),
+          name: record.name || "",
+          normalizedName: normalizeProductName(record.name),
+          brand: record.brand || "",
+          category: record.category || "",
+          subcategory: record.subcategory || "",
+          barcode: normalizeBarcode(record.barcode) || "",
+          imageUrl: record.photo || null,
+          emoji: record.emoji || "📦",
+          createdAt: record.createdAt || new Date().toISOString(),
+          updatedAt: record.updatedAt || record.createdAt || new Date().toISOString()
+        };
+        productByKey[key] = product;
+        products.push(product);
+      } else {
+        product.updatedAt = new Date(product.updatedAt || 0) > new Date(record.updatedAt || 0)
+          ? product.updatedAt
+          : (record.updatedAt || product.updatedAt);
+        if (!product.brand && record.brand) product.brand = record.brand;
+        if (!product.category && record.category) product.category = record.category;
+        if (!product.subcategory && record.subcategory) product.subcategory = record.subcategory;
+        if (!product.barcode && record.barcode) product.barcode = normalizeBarcode(record.barcode);
+        if (!product.imageUrl && record.photo) product.imageUrl = record.photo;
+      }
+      recordToProduct[record.id] = product;
+
+      var purchase = {
+        id: "purchase-" + record.id,
+        userId: currentOwner(),
+        productId: product.id,
+        sourceRecordId: record.id,
+        price: record.price == null || record.price === "" ? null : Number(record.price),
+        channel: record.purchaseChannel || record.purchaseType || "",
+        purchaseType: record.purchaseType || "",
+        purchaseChannel: record.purchaseChannel || "",
+        purchaseDate: record.createdAt ? record.createdAt.slice(0, 10) : "",
+        status: record.status || "using",
+        createdAt: record.createdAt || new Date().toISOString(),
+        updatedAt: record.updatedAt || record.createdAt || new Date().toISOString()
+      };
+      purchases.push(purchase);
+
+      if (record.rating > 0 || record.comment || (record.repurchase && record.repurchase !== "unsure")) {
+        experiences.push({
+          id: "experience-" + record.id,
+          userId: currentOwner(),
+          productId: product.id,
+          purchaseId: purchase.id,
+          rating: record.rating > 0 ? Number(record.rating) : null,
+          comment: record.comment || "",
+          repurchaseIntention: modelRepurchaseValue(record.repurchase),
+          createdAt: record.createdAt || new Date().toISOString(),
+          updatedAt: record.updatedAt || record.createdAt || new Date().toISOString()
+        });
+      }
+    });
+
+    var wishlists = state.cart.map(function (item) {
+      var source = item.sourceRecordId ? recordToProduct[item.sourceRecordId] : null;
+      if (!source) {
+        source = products.find(function (product) {
+          return normalizeProductName(product.name) === normalizeProductName(item.name) &&
+            (!item.category || product.category === item.category);
+        }) || null;
+      }
+      return {
+        id: "wishlist-" + item.id,
+        sourceCartId: item.id,
+        userId: currentOwner(),
+        productId: source ? source.id : null,
+        name: item.name || "",
+        status: modelWishlistStatus(item.status),
+        reason: item.note || "",
+        expectedPrice: item.expectedPrice == null ? null : Number(item.expectedPrice),
+        createdAt: item.createdAt || new Date().toISOString(),
+        purchasedAt: item.purchasedAt || null,
+        updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
+      };
+    });
+
+    state.products = products;
+    state.purchases = purchases;
+    state.experiences = experiences;
+    state.wishlists = wishlists;
+    saveNormalizedModel();
   }
 
   function pendingCart() {
@@ -439,6 +662,22 @@
         var priority = { high: 0, normal: 1, low: 2 };
         return (priority[a.priority] - priority[b.priority]) ||
           (new Date(b.updatedAt) - new Date(a.updatedAt));
+      });
+  }
+
+  function visibleWishItems() {
+    var viewName = state.cartView || "all";
+    return state.cart
+      .filter(function (item) {
+        if (viewName === "abandoned") return item.status === "abandoned";
+        if (viewName === "purchased") return item.status === "purchased";
+        if (item.status !== "pending") return false;
+        if (viewName === "urgent") return item.priority === "high";
+        if (viewName === "revisit") return item.priority !== "high";
+        return true;
+      })
+      .sort(function (a, b) {
+        return new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt);
       });
   }
 
@@ -1267,6 +1506,7 @@
       saveRecords();
       localStorage.setItem(LS_SEEDED, "1");
     }
+    syncNormalizedFromLegacy();
   }
 
   function updateCartBadge() {
@@ -1333,10 +1573,27 @@
           return s + r.rating;
         }, 0) / rated.length;
     }
-    var groups = itemGroups(recs);
+    var productGroups = {};
+    recs.forEach(function (record) {
+      var productId = productIdForRecord(record);
+      if (!productGroups[productId]) productGroups[productId] = [];
+      productGroups[productId].push(record);
+    });
+    var groups = Object.keys(productGroups).map(function (productId) {
+      return productGroups[productId];
+    });
     var repurchased = groups.filter(function (g) {
       return g.length >= 2;
     }).length;
+    var willingGroups = groups.filter(function (g) {
+      return g.some(function (record) { return record.repurchase === "yes"; });
+    }).length;
+    var ratingDistribution = [5, 4, 3, 2, 1].map(function (rating) {
+      return {
+        rating: rating,
+        count: rated.filter(function (record) { return Number(record.rating) === rating; }).length
+      };
+    });
     var cats = {};
     recs.forEach(function (r) {
       var k = r.category || "其他";
@@ -1355,6 +1612,9 @@
     var worst = rated.slice().sort(function (a, b) {
       return a.rating - b.rating;
     })[0];
+    var repeatMost = groups.slice().sort(function (a, b) {
+      return b.length - a.length;
+    })[0];
     var days = {};
     recs.forEach(function (r) {
       if (r.createdAt) days[r.createdAt.slice(0, 10)] = 1;
@@ -1367,8 +1627,12 @@
       count: recs.length,
       avg: avg,
       repurchaseRate: groups.length ? repurchased / groups.length : 0,
+      willingCount: willingGroups,
+      ratingDistribution: ratingDistribution,
       best: best,
       worst: worst,
+      repeatMost: repeatMost ? repeatMost[0] : null,
+      repeatMostCount: repeatMost ? repeatMost.length : 0,
       cats: catList,
       activeDays: Object.keys(days).length,
       totalSpend: spend
@@ -1420,11 +1684,6 @@
       (r.rating ? starsLine(r.rating) : "") +
       "</span>" +
       '<span class="row-side">' +
-      (r.recommend === "yes"
-        ? '<span class="rec-flag" aria-label="推荐">👍</span>'
-        : r.recommend === "no"
-          ? '<span class="rec-flag" aria-label="不推荐">👎</span>'
-          : "") +
       '<span class="row-price">' +
       (r.price != null ? "¥" + esc(fmtMoney(r.price)) : "") +
       "</span></span>" +
@@ -1542,8 +1801,11 @@
       ' 天 · 本月 ' +
       m.count +
       ' 件</div>' +
-      '<div class="home-quick-actions"><button class="quick-action on" data-action="new-record">＋ 记录物品</button><button class="quick-action" data-action="goto" data-to="#/items">我的物品</button><button class="quick-action" data-action="goto" data-to="#/cart">待购买</button></div>' +
+      '<div class="home-quick-actions"><button class="quick-action on" data-action="new-record">＋ 记录一件东西</button><button class="quick-action" data-action="goto" data-to="#/items">我的物品</button><button class="quick-action" data-action="goto" data-to="#/cart">想买清单</button></div>' +
       '</div>' +
+      '<section class="home-module home-module-recent home-recent-first">' +
+      '<div class="home-module-title home-recent-title">最近发生</div>' +
+      '<div class="home-module-body">' + homeRecentHtml(recs) + '</div></section>' +
       '<div class="overview home-overview">' +
       '<div class="overview-top"><span style="font-size:12px;color:var(--muted);">' +
       monthPrefix().replace("-", " 年 ") +
@@ -1558,7 +1820,7 @@
       '</div><div class="ov-label">平均评分</div></div>' +
       '<div class="ov-stat"><div class="ov-num">' +
       Math.round(m.repurchaseRate * 100) +
-      '%</div><div class="ov-label">回购率</div></div>' +
+      '%</div><div class="ov-label">实际回购</div></div>' +
       '<div class="ov-stat"><div class="ov-num">' +
       (m.totalSpend ? "¥" + fmtMoney(m.totalSpend) : "—") +
       '</div><div class="ov-label">本月花费</div></div>' +
@@ -1568,9 +1830,6 @@
       " 天</div></div>" +
       renderCartReminder() +
       renderExpiryStrip() +
-      '<section class="home-module home-module-recent">' +
-      '<div class="home-module-title home-recent-title">最近记录</div>' +
-      '<div class="home-module-body">' + homeRecentHtml(recs) + '</div></section>' +
       '<div class="home-spacer"></div>'
     );
   }
@@ -1629,6 +1888,11 @@
 
   function renderItems() {
     var groups = filteredGroups();
+    var allProductIds = Array.from(new Set(state.records.map(productIdForRecord)));
+    var reviewedCount = allProductIds.filter(function (productId) {
+      return productRating(productRecords(productId)) != null;
+    }).length;
+    var pendingCount = Math.max(0, allProductIds.length - reviewedCount);
     var filtering = !!(state.itemsSearch || activeFilterCount());
     return (
       '<div class="head"><div><div class="page-title">我的物品</div>' +
@@ -1651,6 +1915,11 @@
         : "") +
       "</button>" +
       "</div>" +
+      '<div class="segmented-tabs items-tabs" role="tablist">' +
+      '<button class="segment-tab' + (state.itemsView === "all" ? " on" : "") + '" data-action="items-tab" data-value="all">全部 ' + allProductIds.length + '</button>' +
+      '<button class="segment-tab' + (state.itemsView === "reviewed" ? " on" : "") + '" data-action="items-tab" data-value="reviewed">已评价 ' + reviewedCount + '</button>' +
+      '<button class="segment-tab' + (state.itemsView === "pending" ? " on" : "") + '" data-action="items-tab" data-value="pending">待评价 ' + pendingCount + '</button>' +
+      '</div>' +
       '<div class="filter-tags" id="filter-tags">' +
       renderFilterTags() +
       "</div>" +
@@ -1672,13 +1941,16 @@
   function filteredGroups() {
     var groups = {};
     state.records.forEach(function (r) {
-      var k = itemKey(r);
+      var k = productIdForRecord(r);
       if (!groups[k]) groups[k] = [];
       groups[k].push(r);
     });
     var groupList = Object.keys(groups)
       .map(function (k) {
-        return { key: k, list: recordsByKey(k) };
+        var list = groups[k].sort(function (a, b) {
+          return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+        });
+        return { key: k, list: list, product: productForId(k, list) };
       })
       .sort(function (a, b) {
         var la = a.list[a.list.length - 1];
@@ -1692,22 +1964,26 @@
     var q = String(state.itemsSearch || "").trim().toLowerCase();
     return groupList.filter(function (g) {
       var l = g.list[g.list.length - 1];
-      if (f.category && l.category !== f.category) return false;
-      if (f.rating === "high" && !(l.rating >= 4)) return false;
-      if (f.rating === "low" && !(l.rating > 0 && l.rating <= 2)) return false;
+      var average = productRating(g.list);
+      if (state.itemsView === "reviewed" && average == null) return false;
+      if (state.itemsView === "pending" && average != null) return false;
+      if (f.category && (g.product.category || l.category) !== f.category) return false;
+      if (f.rating === "high" && !(average >= 4)) return false;
+      if (f.rating === "low" && !(average > 0 && average <= 2)) return false;
       if (f.repurchase === "yes" && g.list.length < 2) return false;
       if (f.repurchase === "no" && g.list.length !== 1) return false;
-      if (f.price === "lt50" && !(l.price != null && l.price < 50)) return false;
+      var spend = productSpend(g.list);
+      if (f.price === "lt50" && !(spend < 50)) return false;
       if (
         f.price === "50to100" &&
-        !(l.price != null && l.price >= 50 && l.price <= 100)
+        !(spend >= 50 && spend <= 100)
       )
         return false;
-      if (f.price === "gt100" && !(l.price != null && l.price > 100))
+      if (f.price === "gt100" && !(spend > 100))
         return false;
       if (f.source && l.purchaseType !== f.source) return false;
       if (q) {
-        var hay = ((l.name || "") + " " + (l.brand || "")).toLowerCase();
+        var hay = ((g.product.name || l.name || "") + " " + (g.product.brand || l.brand || "")).toLowerCase();
         var ok = hay.indexOf(q) >= 0;
         if (
           !ok &&
@@ -1715,7 +1991,7 @@
           typeof window.pinyinPro.match === "function"
         ) {
           try {
-            ok = window.pinyinPro.match(l.name + (l.brand || ""), q);
+            ok = window.pinyinPro.match((g.product.name || l.name) + (g.product.brand || l.brand || ""), q);
           } catch (e) {}
         }
         if (!ok) return false;
@@ -1738,14 +2014,14 @@
     return groupList
       .map(function (g) {
         var latest = g.list[g.list.length - 1];
-        var expanded = !!state.expandedItems[g.key];
-        var rating = latest.rating || 0;
+        var rating = productRating(g.list);
+        var spend = productSpend(g.list);
         var repHigh = g.list.length >= 2;
-        var repLow = !repHigh && rating > 0 && rating <= 2;
+        var repLow = !repHigh && rating != null && rating <= 2;
         var cartItem = cartItemForRecord(latest);
         return (
           '<div class="card item-card">' +
-          '<div class="item-head" data-action="toggle-items" data-key="' +
+          '<div class="item-head" data-action="open-product" data-id="' +
           esc(g.key) +
           '">' +
           '<span class="thumb" aria-hidden="true">' +
@@ -1753,30 +2029,25 @@
           "</span>" +
           '<span class="row-main">' +
           '<span class="row-name item-name-full">' +
-          esc(latest.name) +
+          esc(g.product.name || latest.name) +
           "</span>" +
           '<span class="item-meta-row">' +
+          '<span class="item-rating">' +
+          (rating == null ? "待评价" : "★ " + rating.toFixed(1)) +
+          "</span>" +
           '<span class="buy-count' +
           (repHigh ? " rep-high" : repLow ? " rep-low" : "") +
           '">已买 <b>' +
           g.list.length +
           "</b> 次</span>" +
+          (spend > 0 ? '<span class="item-spend">¥' + esc(fmtMoney(spend)) + '</span>' : '') +
           '<span class="item-actions">' +
           '<button class="rebuy-btn" data-action="re-buy" data-id="' + esc(latest.id) + '">再买一次</button>' +
           '<button class="rebuy-btn cart-rebuy-btn" data-action="' + (cartItem ? "cart-remove" : "cart-add-record") + '" data-id="' +
           esc(latest.id) +
-          '">' + (cartItem ? "已在购物车" : "加入购物车") + '</button></span>' +
+          '">' + (cartItem ? "已在想买" : "加入想买") + '</button></span>' +
           "</span>" +
           "</span>" +
-          "</div>" +
-          '<div class="purchase-list"' +
-          (expanded ? "" : " hidden") +
-          ">" +
-          g.list
-            .map(function (r, i) {
-              return purchaseRow(r, i + 1);
-            })
-            .join("") +
           "</div>" +
           "</div>"
         );
@@ -2689,22 +2960,37 @@
   }
 
   function renderCart() {
-    var items = pendingCart();
+    var items = visibleWishItems();
+    var wishAll = pendingCart();
+    var urgentCount = wishAll.filter(function (item) { return item.priority === "high"; }).length;
+    var revisitCount = wishAll.filter(function (item) { return item.priority !== "high"; }).length;
+    var purchasedCount = state.cart.filter(function (item) { return item.status === "purchased"; }).length;
+    var abandonedCount = state.cart.filter(function (item) { return item.status === "abandoned"; }).length;
     var high = items.filter(function (item) { return item.priority === "high"; }).length;
     return (
-      '<div class="head"><div><div class="page-title">购物车</div>' +
-      '<div class="sub">' + items.length + ' 件待购买' + (high ? ' · ' + high + ' 件优先' : '') + '</div></div>' +
-      '<button class="icon-btn add-btn" data-action="cart-new" aria-label="新增待购">＋</button></div>' +
-      '<div class="cart-toolbar"><input class="input" id="cart-search" type="search" placeholder="在待购清单中搜索" value="' + esc(state.cartSearch) + '"></div>' +
+      '<div class="head"><div><div class="page-title">想买</div>' +
+      '<div class="sub">' + wishAll.length + ' 件正在考虑' + (high ? ' · ' + high + ' 件优先' : '') + '</div></div>' +
+      '<button class="icon-btn add-btn" data-action="cart-new" aria-label="新增想买">＋</button></div>' +
+      '<div class="segmented-tabs wish-tabs" role="tablist">' +
+      '<button class="segment-tab' + (state.cartView === "all" ? " on" : "") + '" data-action="cart-tab" data-value="all">全部 ' + wishAll.length + '</button>' +
+      '<button class="segment-tab' + (state.cartView === "urgent" ? " on" : "") + '" data-action="cart-tab" data-value="urgent">很想买 ' + urgentCount + '</button>' +
+      '<button class="segment-tab' + (state.cartView === "revisit" ? " on" : "") + '" data-action="cart-tab" data-value="revisit">再看看 ' + revisitCount + '</button>' +
+      '<button class="segment-tab' + (state.cartView === "purchased" ? " on" : "") + '" data-action="cart-tab" data-value="purchased">已买到 ' + purchasedCount + '</button>' +
+      '<button class="segment-tab' + (state.cartView === "abandoned" ? " on" : "") + '" data-action="cart-tab" data-value="abandoned">已放弃 ' + abandonedCount + '</button>' +
+      '</div>' +
+      (wishAll.length >= 10 ? '<div class="cart-toolbar"><input class="input" id="cart-search" type="search" placeholder="在想买清单中搜索" value="' + esc(state.cartSearch) + '"></div>' : '') +
       (items.length ? '<div class="cart-list">' + items.filter(function (item) {
         return !state.cartSearch || (item.name + ' ' + item.note).toLowerCase().indexOf(state.cartSearch.toLowerCase()) >= 0;
       }).map(cartItemHtml).join('') + '</div>' :
-        '<div class="empty"><span class="e">🛒</span>购物车还是空的，看到想买的物品就加入吧</div>') +
+        '<div class="empty"><span class="e">🛍️</span>' + (state.cartView === "abandoned" ? "还没有放弃的购买" : "还没有想买的东西，看到喜欢的就记在这里") + '</div>') +
       ''
     );
   }
 
   function cartItemHtml(item) {
+    var abandoned = item.status === "abandoned";
+    var purchased = item.status === "purchased";
+    var menuOpen = state.cartMenuId === item.id;
     var thumb = item.image && /^(https?:|data:image)/.test(item.image)
       ? '<img src="' + esc(item.image) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">'
       : esc(item.image || "🛒");
@@ -2713,45 +2999,90 @@
       '<div class="row-main"><div class="row-name">' + esc(item.name) + '</div>' +
       (item.category ? '<div class="cart-meta">' + esc(item.category) + '</div>' : '') +
       (item.note ? '<div class="cart-note">' + esc(item.note) + '</div>' : '') + '</div>' +
-      '<div class="cart-actions"><button class="btn btn-primary btn-small" data-action="cart-purchased" data-id="' + esc(item.id) + '">已买到</button>' +
-      '<button class="cart-icon-action" data-action="cart-edit" data-id="' + esc(item.id) + '" aria-label="编辑待购" title="编辑待购">✎</button>' +
-      '<button class="cart-icon-action danger" data-action="cart-delete" data-id="' + esc(item.id) + '" aria-label="删除待购" title="删除待购">×</button></div></div>';
+      '<div class="cart-actions">' +
+      (abandoned
+        ? '<span class="wish-status abandoned-status">已放弃，记录保留</span>'
+        : purchased
+          ? '<span class="wish-status purchased-status">已买到，已加入物品</span>'
+          : '<button class="btn btn-primary btn-small" data-action="cart-purchased" data-id="' + esc(item.id) + '">✓ 买到了</button>') +
+      (purchased && item.sourceRecordId
+        ? '<button class="cart-icon-action" data-action="goto" data-to="#/detail/r-' + esc(item.sourceRecordId) + '" aria-label="查看购买记录" title="查看购买记录">›</button>'
+        : '') +
+      (!purchased && !abandoned
+        ? '<button class="cart-icon-action cart-more-btn" data-action="cart-more" data-id="' + esc(item.id) + '" aria-label="更多操作" title="更多操作">···</button>'
+        : '') +
+      (menuOpen
+        ? '<div class="cart-more-menu">' +
+          '<button type="button" data-action="cart-edit" data-id="' + esc(item.id) + '">编辑</button>' +
+          '<button type="button" data-action="cart-abandon" data-id="' + esc(item.id) + '">不想买了</button>' +
+          '<button type="button" class="danger-text" data-action="cart-delete-permanent" data-id="' + esc(item.id) + '">删除</button>' +
+          '</div>'
+        : '') +
+      '</div></div>';
   }
 
   function renderCartForm() {
     var d = state.cartDraft || { name: "", note: "", priority: "normal" };
     return '<div class="topbar"><button class="icon-btn" data-action="cart-cancel" aria-label="返回">‹</button><h2>' +
-      (d.id ? "编辑待购" : "添加待购") + '</h2></div>' +
+      (d.id ? "编辑想买" : "添加想买") + '</h2></div>' +
       '<label class="label" for="cart-name">想买什么 *</label><input class="input" id="cart-name" data-cart-bind="name" maxlength="80" placeholder="比如：防晒霜" value="' + esc(d.name) + '">' +
       '<label class="label" for="cart-note">备注（可选）</label><textarea class="textarea" id="cart-note" data-cart-bind="note" placeholder="规格、颜色、想买的原因……">' + esc(d.note) + '</textarea>' +
       '<div class="label">优先级</div><div class="chips">' +
       [{v:"high",t:"优先购买"},{v:"normal",t:"想买"},{v:"low",t:"不着急"}].map(function (x) {
         return '<button type="button" class="chip ' + (d.priority === x.v ? 'on' : '') + '" data-action="cart-priority" data-value="' + x.v + '">' + x.t + '</button>';
-      }).join('') + '</div><button class="btn btn-primary" data-action="cart-save">保存待购</button>';
+      }).join('') + '</div><button class="btn btn-primary" data-action="cart-save">保存到想买</button>';
   }
 
   function renderRecord() {
     var e = state.editing || newRecord();
+    var detailsOpen = !!state.recordDetailsOpen || !!(
+      e.brand || e.category || e.purchaseType || e.purchaseChannel ||
+      e.price || e.expiryDate || e.producedDate || e.photo
+    );
+    var isPurchaseFlow = !!state.pendingCartId;
+    var hasName = !!String(e.name || "").trim();
+    var detailsStage = state.recordStage === "details" || !!e.id || isPurchaseFlow;
     return (
       '<div class="topbar">' +
       '<button class="icon-btn" data-action="goto" data-to="#/home" aria-label="返回">‹</button>' +
-      "<h2>记录物品</h2></div>" +
-      '<button type="button" class="tool-btn" data-action="goto" data-to="#/scan">' +
-      '<span class="tool-icon" aria-hidden="true">📷</span>' +
-      '<span class="tool-main"><span class="tool-title">扫码自动填写</span>' +
-      '<span class="tool-sub">扫条码自动带出商品信息</span></span>' +
-      '<span class="tool-chevron" aria-hidden="true">›</span>' +
-      "</button>" +
+      "<h2>" + (isPurchaseFlow ? "买到了" : "记录一件东西") + "</h2></div>" +
+      (!detailsStage
+        ? '<div class="record-intro">先记下名称，评分和感受可以马上补充，也可以之后再写。</div>'
+        : "") +
+      '<label class="label" for="rec-name">物品名称 *</label>' +
+      '<input class="input record-name-input" id="rec-name" data-bind="name" value="' +
+      esc(e.name) +
+      '" placeholder="比如：逐本 清欢洁面乳">' +
+      '<div id="rec-duplicate-hint"></div>' +
       (e.barcode
         ? '<div class="hint" style="text-align:left;margin-top:8px;">已识别条码：' +
           esc(e.barcode) +
           "</div>"
         : "") +
-      '<label class="label" for="rec-name">物品名称 *</label>' +
-      '<input class="input" id="rec-name" data-bind="name" value="' +
-      esc(e.name) +
-      '" placeholder="比如：逐本 清欢洁面乳">' +
-      '<label class="label" for="rec-brand">品牌（可选）</label>' +
+      (!detailsStage
+        ? '<button type="button" class="btn btn-primary record-continue" data-action="record-continue"' +
+          (hasName ? "" : " disabled") +
+          '>继续填写评分</button>' +
+          '<div class="record-recognition-actions">' +
+          '<button type="button" class="record-alt-action" data-action="pick-photo-recognize" data-mode="camera">📷 拍照识别</button>' +
+          '<button type="button" class="record-alt-action" data-action="goto" data-to="#/scan">▣ 扫码识别</button>' +
+          '</div>'
+        : '<div class="record-essential">' +
+      '<div class="label">我的评分' + (isPurchaseFlow ? '（用过后再补也可以）' : '') + '</div>' +
+      '<div id="rec-stars"></div>' +
+      '<div class="label">以后还会买吗？</div>' +
+      '<div class="chips" id="rec-repurchase"></div>' +
+      '<label class="label" for="rec-comment">一句话感受（可选）</label>' +
+      '<textarea class="textarea" id="rec-comment" data-bind="comment" placeholder="比如：泡沫细腻，不假滑。">' +
+      esc(e.comment || "") +
+      "</textarea></div>") +
+      (detailsStage
+        ? '<button type="button" class="record-details-toggle" data-action="toggle-record-details">' +
+          (detailsOpen ? "收起更多信息" : "补充购买信息、品牌和照片") +
+          '<span aria-hidden="true">' + (detailsOpen ? "⌃" : "⌄") + "</span></button>" +
+          '<div class="record-details"' + (detailsOpen ? "" : " hidden") + ">"
+        : "") +
+      (detailsStage ? '<label class="label" for="rec-brand">品牌（可选）</label>' +
       '<input class="input" id="rec-brand" data-bind="brand" value="' +
       esc(e.brand) +
       '">' +
@@ -2786,14 +3117,6 @@
       '">' +
       '<div class="hint" style="text-align:left;margin-top:6px;">到期日 = 生产日期 + 时长；未填生产日期则按今天算。到期前 7 天出现在主页「临期提醒」</div>' +
       "</div>" +
-      '<div class="label">我的评分</div>' +
-      '<div id="rec-stars"></div>' +
-      '<div class="label">推荐吗（可选）</div>' +
-      '<div class="chips" id="rec-recommend"></div>' +
-      '<label class="label" for="rec-comment">一句话短评（可选）</label>' +
-      '<textarea class="textarea" id="rec-comment" data-bind="comment" placeholder="比如：泡沫细腻，不假滑，会回购。">' +
-      esc(e.comment || "") +
-      "</textarea>" +
       '<div class="label">照片（可选）</div>' +
       '<div class="photo-actions" id="rec-upload">' +
       '<button type="button" class="photo-btn" data-action="pick-photo" data-mode="camera">' +
@@ -2802,12 +3125,18 @@
       '<span class="tool-icon" aria-hidden="true">🖼️</span><span>从相册选择</span></button>' +
       "</div>" +
       '<div id="rec-photo"></div>' +
-      '<button class="btn btn-primary" data-action="save-record">保存记录</button>'
+      "</div>" : "") +
+      (detailsStage
+        ? '<button class="btn btn-primary" data-action="save-record">' + (isPurchaseFlow ? "完成购买记录" : "保存记录") + "</button>"
+        : "")
     );
   }
 
   function newRecord() {
     state.pendingCartId = null;
+    state.recordStage = "name";
+    state.recordDetailsOpen = false;
+    state.photoRecognitionPending = false;
     state.editing = {
       id: null,
       name: "",
@@ -2855,20 +3184,123 @@
     renderCatField();
     renderPurchField();
     renderExpiry();
-    renderRecommend();
+    renderRepurchase();
+    renderDuplicateHint();
     renderPhoto();
   }
 
-  function renderRecommend() {
-    var el = document.getElementById("rec-recommend");
+  function renderRepurchase() {
+    var el = document.getElementById("rec-repurchase");
     if (!el) return;
     el.innerHTML =
       '<button type="button" class="chip' +
-      (state.editing.recommend === "yes" ? " on" : "") +
-      '" data-action="recommend-set" data-value="yes">👍 推荐</button>' +
+      (state.editing.repurchase === "yes" ? " on" : "") +
+      '" data-action="repurchase-set" data-value="yes">会回购</button>' +
       '<button type="button" class="chip' +
-      (state.editing.recommend === "no" ? " on" : "") +
-      '" data-action="recommend-set" data-value="no">👎 不推荐</button>';
+      (state.editing.repurchase === "unsure" ? " on" : "") +
+      '" data-action="repurchase-set" data-value="unsure">不确定</button>' +
+      '<button type="button" class="chip' +
+      (state.editing.repurchase === "no" ? " on" : "") +
+      '" data-action="repurchase-set" data-value="no">不会回购</button>';
+  }
+
+  function matchTokens(value) {
+    var normalized = normalizeProductName(value);
+    var latin = normalized.match(/[a-z0-9]+/g) || [];
+    var cjk = normalized.replace(/[a-z0-9]+/g, "").split("").filter(Boolean);
+    return Array.from(new Set(latin.concat(cjk)));
+  }
+
+  function nameMatchScore(a, b) {
+    var left = normalizeProductName(a);
+    var right = normalizeProductName(b);
+    if (!left || !right) return 0;
+    if (left === right) return 1;
+    var shorter = left.length <= right.length ? left : right;
+    var longer = left.length > right.length ? left : right;
+    if (shorter.length >= 3 && longer.indexOf(shorter) >= 0) {
+      return 0.72 + Math.min(shorter.length / longer.length, 1) * 0.18;
+    }
+    var leftTokens = matchTokens(a);
+    var rightTokens = matchTokens(b);
+    if (!leftTokens.length || !rightTokens.length) return 0;
+    var rightSet = new Set(rightTokens);
+    var overlap = leftTokens.filter(function (token) {
+      return rightSet.has(token);
+    }).length;
+    return overlap / new Set(leftTokens.concat(rightTokens)).size;
+  }
+
+  function productMatch(candidate, target) {
+    var candidateBarcode = normalizeBarcode(candidate && candidate.barcode);
+    var targetBarcode = normalizeBarcode(target && target.barcode);
+    if (candidateBarcode && targetBarcode && candidateBarcode === targetBarcode) {
+      return { score: 1, type: "barcode", label: "条码一致" };
+    }
+
+    var score = nameMatchScore(candidate && candidate.name, target && target.name);
+    if (score === 1) {
+      return { score: 0.95, type: "name", label: "名称一致" };
+    }
+
+    var candidateBrand = normalizeProductName(candidate && candidate.brand);
+    var targetBrand = normalizeProductName(target && target.brand);
+    if (candidateBrand && targetBrand && candidateBrand === targetBrand && score >= 0.35) {
+      return { score: 0.78 + score * 0.1, type: "brand", label: "品牌和关键词相近" };
+    }
+    if (score >= 0.52) {
+      return { score: score * 0.8, type: "similar", label: "名称相近" };
+    }
+    return null;
+  }
+
+  function recordMatchCandidates() {
+    var e = state.editing;
+    if (!e || (!String(e.name || "").trim() && !normalizeBarcode(e.barcode))) return [];
+    var grouped = {};
+    state.records.forEach(function (record) {
+      if (!record || record.id === e.id) return;
+      var match = productMatch(record, e);
+      if (!match) return;
+      var key = legacyProductKey(record);
+      var existing = grouped[key];
+      if (!existing || match.score > existing.score) {
+        grouped[key] = {
+          record: record,
+          score: match.score,
+          type: match.type,
+          label: match.label,
+          key: key
+        };
+      }
+    });
+    return Object.keys(grouped)
+      .map(function (key) { return grouped[key]; })
+      .sort(function (a, b) { return b.score - a.score; })
+      .slice(0, 3);
+  }
+
+  function similarRecord() {
+    return recordMatchCandidates()[0] || null;
+  }
+
+  function renderDuplicateHint() {
+    var el = document.getElementById("rec-duplicate-hint");
+    var hit = similarRecord();
+    if (!el) return;
+    if (!hit) {
+      el.innerHTML = "";
+      return;
+    }
+    var record = hit.record;
+    var count = state.records.filter(function (r) {
+      return legacyProductKey(r) === hit.key;
+    }).length;
+    var title = hit.type === "similar" || hit.type === "brand" ? "可能是你以前记录过的物品" : "你以前好像记录过";
+    el.innerHTML = '<div class="duplicate-hint"><span>' + title + '<br><b>' +
+      esc(record.name) + '</b><small>已买 ' + count + ' 次 · ' + esc(hit.label) + '</small></span>' +
+      '<span class="duplicate-hint-actions"><button type="button" class="link-btn" data-action="record-again" data-id="' + esc(record.id) + '">就是这个，再记一次</button>' +
+      '<button type="button" class="link-btn muted-link" data-action="record-create-new">不是，创建新物品</button></span></div>';
   }
 
   function renderExpiry() {
@@ -3137,6 +3569,56 @@
     }
   }
 
+  function productTimelineRow(record, index, total) {
+    return (
+      '<a class="row purchase-row product-timeline-row" href="#/detail/r-' +
+      esc(record.id) + '">' +
+      '<span class="purchase-badge" aria-hidden="true">' + (total - index) + "</span>" +
+      '<span class="row-main">' +
+      '<span class="purchase-date">' + esc(fmtDate(record.createdAt)) + "</span>" +
+      '<span class="product-purchase-meta">' +
+      (record.price != null ? "¥" + esc(fmtMoney(record.price)) : "未填写价格") +
+      (purchaseLabel(record) ? " · " + esc(purchaseLabel(record)) : "") +
+      "</span>" +
+      (record.rating ? starsLine(record.rating) : '<span class="product-purchase-meta">暂未评价</span>') +
+      "</span>" +
+      '<span class="purchase-side">›</span>' +
+      "</a>"
+    );
+  }
+
+  function renderProductDetail(id) {
+    var productId = decodeURIComponent(id || "");
+    var list = productRecords(productId).slice().reverse();
+    var product = productForId(productId, list);
+    if (!product || !list.length) return renderItems();
+    var average = productRating(list);
+    var repurchase = list.length >= 2 || list.some(function (record) {
+      return record.repurchase === "yes";
+    });
+    return (
+      '<div class="topbar">' +
+      '<button class="icon-btn" data-action="goto" data-to="#/items" aria-label="返回">‹</button>' +
+      "<h2>物品详情</h2></div>" +
+      '<div class="card product-detail-hero">' +
+      '<span class="thumb" aria-hidden="true">' + esc(product.emoji || recordEmoji(list[0])) + "</span>" +
+      '<div class="product-detail-copy"><h3>' + esc(product.name) + "</h3>" +
+      '<div class="product-detail-sub">' + esc(product.brand || categoryLabel(list[0]) || "") + "</div>" +
+      '<div class="product-detail-stats">' +
+      '<span>' + (average == null ? "暂未评价" : "★ " + average.toFixed(1)) + "</span>" +
+      '<span>已买 ' + list.length + " 次</span>" +
+      (repurchase ? '<span class="tag green">会回购</span>' : "") +
+      "</div></div></div>" +
+      '<div class="label product-timeline-title">购买时间线</div>' +
+      '<div class="card product-timeline">' +
+      list.map(function (record, index) {
+        return productTimelineRow(record, index, list.length);
+      }).join("") +
+      "</div>" +
+      '<button class="btn btn-ghost" data-action="re-buy" data-id="' + esc(list[0].id) + '">再买一次</button>'
+    );
+  }
+
   function renderDetail(id) {
     if (id.indexOf("r-") === 0) {
       var r = state.records.find(function (x) {
@@ -3185,9 +3667,9 @@
         '<div><div class="kv-label">我的评分</div><div class="kv-value">' +
         (r.rating ? r.rating + " ★" : "未评分") +
         "</div></div>" +
-        (r.recommend
-          ? '<div><div class="kv-label">推荐</div><div class="kv-value">' +
-            (r.recommend === "yes" ? "👍 推荐" : "👎 不推荐") +
+        (r.repurchase && r.repurchase !== "unsure"
+          ? '<div><div class="kv-label">回购意愿</div><div class="kv-value">' +
+            (r.repurchase === "yes" ? "会回购" : "不会回购") +
             "</div></div>"
           : "") +
         '<div><div class="kv-label">品类</div><div class="kv-value">' +
@@ -3254,7 +3736,7 @@
             "</div>"
            : "") +
         '<button class="btn btn-ghost" data-action="cart-add-record" data-id="' + esc(r.id) + '">' +
-        (cartItemForRecord(r) ? "已在购物车 · 移出" : "加入购物车") +
+        (cartItemForRecord(r) ? "已在想买 · 移出" : "加入想买") +
         '</button>' +
         '<button class="btn btn-ghost" data-action="re-buy" data-id="' +
         esc(r.id) +
@@ -3337,7 +3819,8 @@
       "</b><span>本月花费</span></div>" +
       '<div class="stat"><b>' +
       Math.round(m.repurchaseRate * 100) +
-      "%</b><span>回购率</span></div></div>" +
+      "%</b><span>实际回购率</span></div>" +
+      '<div class="stat"><b>' + m.willingCount + "</b><span>愿意回购</span></div></div>" +
       (m.best
         ? '<div class="card" style="margin-top:12px;">' +
           '<div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;">🏆 本月最佳</div>' +
@@ -3370,6 +3853,13 @@
             : "") +
           "</div>"
         : '<div class="empty" style="margin-top:12px;"><span class="e">📝</span>本月还没有评分记录</div>') +
+      '<div class="section">评分分布</div>' +
+      '<div class="card review-distribution">' +
+      m.ratingDistribution.map(function (item) {
+        var maxRating = Math.max.apply(null, m.ratingDistribution.map(function (row) { return row.count; })) || 1;
+        return '<div class="dist-row"><span>' + item.rating + ' 星</span><div class="bar"><span style="width:' + Math.round((item.count / maxRating) * 100) + '%"></span></div><span>' + item.count + '</span></div>';
+      }).join('') +
+      '</div>' +
       '<div class="section">品类分布</div>' +
       '<div class="card">' +
       (m.cats.length
@@ -3388,6 +3878,9 @@
             .join("")
         : "本月还没有记录") +
       "</div>" +
+      (m.repeatMost
+        ? '<div class="section">回购最多</div><div class="card review-repeat-card"><span class="thumb" aria-hidden="true">' + esc(recordEmoji(m.repeatMost)) + '</span><span class="row-main"><span class="row-name">' + esc(m.repeatMost.name) + '</span><span class="row-meta">本月记录 ' + m.repeatMostCount + ' 次</span></span></div>'
+        : '') +
       '<div class="quote" style="margin-top:12px;">' +
       "<b>一句话总结：</b>" +
       (m.count
@@ -3432,7 +3925,7 @@
   }
 
   if (!location.hash || location.hash === "#" || location.hash === "#/") {
-    location.hash = "#/record";
+    location.hash = "#/home";
   }
 
   var VIEWS = {
@@ -3445,6 +3938,7 @@
     "store-detail": renderStoreDetail,
     profile: renderProfile,
     record: renderRecord,
+    product: renderProductDetail,
     detail: renderDetail,
     review: renderReview,
     scan: renderScan
@@ -3459,7 +3953,7 @@
     var tab =
       r.path === "home" ||
       r.path === "items" ||
-      r.path === "stores" ||
+      r.path === "review" ||
       r.path === "cart" ||
       r.path === "profile"
         ? r.path
@@ -3467,7 +3961,7 @@
     if (
       r.path === "home" ||
       r.path === "items" ||
-      r.path === "stores" ||
+      r.path === "review" ||
       r.path === "cart" ||
       r.path === "profile"
     ) {
@@ -3663,6 +4157,8 @@
   function handleBarcode(raw) {
     stopScanner();
     if (!state.editing) newRecord();
+    state.recordStage = "details";
+    state.recordDetailsOpen = true;
     state.editing.barcode = String(raw || "").trim();
     if (!state.editing.barcode) {
       toast("未识别到条码");
@@ -3764,12 +4260,50 @@
       });
   }
 
+  function requestAiProductInfo(name, image) {
+    if (typeof WUJI_AI_ENABLED === "undefined" || !WUJI_AI_ENABLED) {
+      return Promise.resolve(null);
+    }
+    return fetch("/api/identify-product", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, image: image || null })
+    })
+      .then(function (res) {
+        return res.json().then(function (payload) {
+          if (!res.ok || !payload || payload.code !== 0) return null;
+          return payload.data || null;
+        });
+      })
+      .catch(function () { return null; });
+  }
+
+  function enrichRecordWithAi() {
+    if (!state.editing || typeof WUJI_AI_ENABLED === "undefined" || !WUJI_AI_ENABLED) return;
+    var sourceName = String(state.editing.name || "").trim();
+    if (!sourceName) return;
+    requestAiProductInfo(sourceName, state.editing.photo).then(function (info) {
+      if (!info || !state.editing || String(state.editing.name || "").trim() !== sourceName) return;
+      if (info.name) state.editing.name = info.name;
+      if (info.brand) state.editing.brand = info.brand;
+      if (info.category) state.editing.category = info.category;
+      if (info.subcategory) state.editing.subcategory = info.subcategory;
+      state.recordDetailsOpen = true;
+      route();
+      toast("已补充商品信息，请确认后保存");
+    });
+  }
+
   /* ---------- actions ---------- */
 
   function saveRecord() {
     var e = state.editing;
     if (!e || !e.name.trim()) {
       toast("请填写物品名称");
+      return;
+    }
+    if (!state.pendingCartId && !(Number(e.rating) > 0)) {
+      toast("请先给物品一个评分");
       return;
     }
     var price = parseFloat(
@@ -3828,7 +4362,7 @@
 
   function addCartItemFromRecord(record) {
     if (!record || cartItemForRecord(record)) {
-      toast("这件物品已经在购物车里");
+      toast("这件物品已经在想买清单里");
       return;
     }
     var now = new Date().toISOString();
@@ -3850,7 +4384,7 @@
     upsertCartToCloud(item);
     updateCartBadge();
     if (parseHash().path === "items") route();
-    toast("已加入购物车");
+    toast("已加入想买");
   }
 
   function beginCartFromRecord(record) {
@@ -3862,7 +4396,7 @@
       deleteCartInCloud(existing.id);
       updateCartBadge();
       route();
-      toast("已移出购物车");
+      toast("已移出想买");
       return;
     }
     addCartItemFromRecord(record);
@@ -3873,10 +4407,13 @@
     if (!item) return;
     newRecord();
     state.pendingCartId = item.id;
+    state.recordStage = "details";
     state.editing.name = item.name;
     state.editing.category = item.category || "";
     state.editing.emoji = item.image && item.image.length <= 4 ? item.image : "📦";
+    state.editing.purchaseType = "";
     state.editing.comment = item.note || "";
+    state.recordDetailsOpen = true;
     location.hash = "#/record";
     toast("已带入记录表单，补充购买信息后保存");
   }
@@ -3900,7 +4437,7 @@
     state.cartDraft = null;
     updateCartBadge();
     location.hash = "#/cart";
-    toast("已保存待购");
+    toast("已保存到想买");
   }
 
   document.getElementById("app").addEventListener("click", function (ev) {
@@ -3936,6 +4473,7 @@
     }
     if (action === "new-record") {
       newRecord();
+      state.recordDetailsOpen = false;
       location.hash = "#/record";
       return;
     }
@@ -3971,20 +4509,82 @@
       saveCartDraft();
       return;
     }
+    if (action === "record-continue") {
+      if (!state.editing || !String(state.editing.name || "").trim()) {
+        toast("先填写物品名称");
+        return;
+      }
+      state.recordStage = "details";
+      route();
+      enrichRecordWithAi();
+      return;
+    }
+    if (action === "record-create-new") {
+      state.recordStage = "details";
+      route();
+      return;
+    }
+    if (action === "cart-tab") {
+      state.cartView = value || "all";
+      state.cartSearch = "";
+      route();
+      return;
+    }
     if (action === "cart-purchased") {
       purchaseCartItem(el.getAttribute("data-id"));
       return;
     }
-    if (action === "cart-delete") {
-      var deleteCartId = el.getAttribute("data-id");
-      if (confirm("确定从购物车删除这件待购物品吗？")) {
-        state.cart = state.cart.filter(function (x) { return x.id !== deleteCartId; });
-        saveCart();
-        deleteCartInCloud(deleteCartId);
+    if (action === "cart-more") {
+      state.cartMenuId = state.cartMenuId === el.getAttribute("data-id") ? null : el.getAttribute("data-id");
+      route();
+      return;
+    }
+    if (action === "cart-abandon") {
+      var abandonId = el.getAttribute("data-id");
+      if (confirm("确定暂时不想买了吗？这条想买记录会保留。")) {
+        var abandonItem = state.cart.find(function (x) { return x.id === abandonId; });
+        if (abandonItem) {
+          abandonItem.status = "abandoned";
+          abandonItem.updatedAt = new Date().toISOString();
+          saveCart();
+          upsertCartToCloud(abandonItem);
+        }
+        state.cartMenuId = null;
         updateCartBadge();
         route();
-        toast("已删除");
       }
+      return;
+    }
+    if (action === "cart-delete-permanent") {
+      var permanentId = el.getAttribute("data-id");
+      if (confirm("确定删除这条想买记录吗？删除后无法恢复。")) {
+        state.cart = state.cart.filter(function (x) { return x.id !== permanentId; });
+        saveCart();
+        state.cartMenuId = null;
+        updateCartBadge();
+        route();
+      }
+      return;
+    }
+    if (action === "cart-delete") {
+      var deleteCartId = el.getAttribute("data-id");
+      if (confirm("把这件事移到“已放弃”吗？记录会保留，之后还能找回来。")) {
+        var abandonedItem = state.cart.find(function (x) { return x.id === deleteCartId; });
+        if (abandonedItem) {
+          abandonedItem.status = "abandoned";
+          abandonedItem.updatedAt = new Date().toISOString();
+        }
+        saveCart();
+        if (abandonedItem) upsertCartToCloud(abandonedItem);
+        updateCartBadge();
+        route();
+        toast("已移到“已放弃”");
+      }
+      return;
+    }
+    if (action === "items-tab") {
+      state.itemsView = value || "all";
+      route();
       return;
     }
     if (action === "open-filter") {
@@ -4015,12 +4615,19 @@
       if (tlist) tlist.innerHTML = itemsListHtml();
       return;
     }
+    if (action === "open-product") {
+      var productId = el.getAttribute("data-id");
+      if (productId) location.hash = "#/product/" + encodeURIComponent(productId);
+      return;
+    }
     if (action === "edit-record") {
       var r0 = state.records.find(function (x) {
         return x.id === el.getAttribute("data-id");
       });
       if (r0) {
         state.editing = Object.assign({}, r0);
+        state.recordStage = "details";
+        state.recordDetailsOpen = true;
         location.hash = "#/record";
       }
       return;
@@ -4031,11 +4638,13 @@
       });
       if (src) {
         newRecord();
+        state.recordStage = "details";
         state.editing.name = src.name;
         state.editing.brand = src.brand;
         state.editing.category = src.category || "";
         state.editing.subcategory = src.subcategory || "";
         state.editing.emoji = src.emoji || "📦";
+        state.recordDetailsOpen = true;
         location.hash = "#/record";
       }
       return;
@@ -4046,11 +4655,13 @@
       });
       if (c3) {
         newRecord();
+        state.recordStage = "details";
         state.editing.name = c3.name;
         state.editing.brand = c3.brand;
         state.editing.category = c3.category;
         state.editing.emoji = c3.emoji;
         state.editing.barcode = c3.barcode;
+        state.recordDetailsOpen = false;
         location.hash = "#/record";
       }
       return;
@@ -4205,11 +4816,30 @@
       }
       return;
     }
-    if (action === "recommend-set") {
+    if (action === "repurchase-set") {
       if (state.editing) {
-        state.editing.recommend =
-          state.editing.recommend === value ? "" : value;
-        renderRecommend();
+        state.editing.repurchase = value || "unsure";
+        renderRepurchase();
+      }
+      return;
+    }
+    if (action === "toggle-record-details") {
+      state.recordDetailsOpen = !state.recordDetailsOpen;
+      route();
+      return;
+    }
+    if (action === "record-again") {
+      var previous = state.records.find(function (x) { return x.id === el.getAttribute("data-id"); });
+      if (previous) {
+        newRecord();
+        state.recordStage = "details";
+        state.editing.name = previous.name;
+        state.editing.brand = previous.brand || "";
+        state.editing.category = previous.category || "";
+        state.editing.subcategory = previous.subcategory || "";
+        state.editing.emoji = previous.emoji || "📦";
+        state.recordDetailsOpen = false;
+        route();
       }
       return;
     }
@@ -4366,6 +4996,19 @@
       input.click();
       return;
     }
+    if (action === "pick-photo-recognize") {
+      if (!state.editing) newRecord();
+      state.photoRecognitionPending = true;
+      var recognitionInput = document.getElementById("photo-input");
+      if (recognitionInput) {
+        recognitionInput.removeAttribute("capture");
+        if (el.getAttribute("data-mode") === "camera") {
+          recognitionInput.setAttribute("capture", "environment");
+        }
+        recognitionInput.click();
+      }
+      return;
+    }
     if (action === "clear-photo") {
       if (state.editing) {
         state.editing.photo = null;
@@ -4440,12 +5083,12 @@
           "购买渠道": r.purchaseChannel || "",
           "价格（元）": r.price == null ? "" : r.price,
           "评分": r.rating || "",
-          "推荐":
-            r.recommend === "yes"
-              ? "推荐"
-              : r.recommend === "no"
-                ? "不推荐"
-                : "",
+          "回购意愿":
+            r.repurchase === "yes"
+              ? "会回购"
+              : r.repurchase === "no"
+                ? "不会回购"
+                : "不确定",
           "购买日期": r.createdAt ? r.createdAt.slice(0, 10) : "",
           "短评": r.comment || ""
         };
@@ -4458,12 +5101,12 @@
           "物品名称": item.name || "",
           "备注": item.note || "",
           "优先级": cartPriorityLabel(item.priority),
-          "状态": item.status === "purchased" ? "已买到" : "待购买",
+          "状态": item.status === "purchased" ? "已买到" : "想买",
           "添加日期": item.createdAt ? item.createdAt.slice(0, 10) : "",
           "买到日期": item.purchasedAt ? item.purchasedAt.slice(0, 10) : ""
         };
       });
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cartRows), "购物车");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cartRows), "想买");
       XLSX.writeFile(wb, "物记数据导出.xlsx");
       toast("已导出 Excel");
       return;
@@ -4493,6 +5136,15 @@
       }
       return;
     }
+    if (t.id === "rec-name") {
+      if (state.editing) {
+        state.editing.name = t.value;
+        renderDuplicateHint();
+        var continueRecord = document.querySelector('[data-action="record-continue"]');
+        if (continueRecord) continueRecord.disabled = !String(t.value || "").trim();
+      }
+      return;
+    }
     if (t.id === "store-search") {
       state.storeSearch = t.value;
       var sl3 = document.getElementById("store-list");
@@ -4505,6 +5157,7 @@
       state.cartDraft[cartBind] = t.value;
     } else if (state.editing && bind) {
       state.editing[bind] = t.value;
+      if (bind === "brand") renderDuplicateHint();
     } else if (state.editingStore && bind) {
       state.editingStore[bind] = t.value;
       if (bind === "totalSpend" || bind === "people") updateStoreAvg();
@@ -4534,15 +5187,37 @@
       return;
     }
     if (!state.editing) newRecord();
+    var recognitionPending = !!state.photoRecognitionPending;
+    state.photoRecognitionPending = false;
     readPhoto(file).then(function (dataUrl) {
       if (dataUrl) {
         var old = state.editing.photo;
-        uploadImageToStorage(dataUrl).then(function (final) {
+        var sourceName = String(state.editing.name || "").trim() || "图片中的物品";
+        var aiPromise = recognitionPending
+          ? requestAiProductInfo(sourceName, dataUrl)
+          : Promise.resolve(null);
+        Promise.all([uploadImageToStorage(dataUrl), aiPromise]).then(function (results) {
+          var final = results[0];
+          var aiInfo = results[1];
           state.editing.photo = final;
           if (isStorageUrl(old) && old !== final) deleteStorageFile(old);
-          renderPhoto();
+          if (recognitionPending) {
+            state.recordStage = "details";
+            state.recordDetailsOpen = true;
+            if (aiInfo) {
+              if (aiInfo.name) state.editing.name = aiInfo.name;
+              if (aiInfo.brand) state.editing.brand = aiInfo.brand;
+              if (aiInfo.category) state.editing.category = aiInfo.category;
+              if (aiInfo.subcategory) state.editing.subcategory = aiInfo.subcategory;
+            }
+            route();
+          } else {
+            renderPhoto();
+          }
           toast(
-            isStorageUrl(final) ? "已添加照片（云端）" : "已添加照片（本机）"
+            recognitionPending
+              ? (aiInfo ? "已识别物品信息，请确认后保存" : "已添加照片，可继续手动填写")
+              : (isStorageUrl(final) ? "已添加照片（云端）" : "已添加照片（本机）")
           );
         });
       } else {

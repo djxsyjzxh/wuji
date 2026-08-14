@@ -5,3 +5,5 @@ var WUJI_SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 var WUJI_AMAP_KEY = "92877918016c72bcadc15cbfcd5827cc";
 // 高德地图安全密钥（jscode，Key 开启安全密钥时需要）
 var WUJI_AMAP_JSCODE = "ce0487816e76a201551599ea803a1d9f";
+// AI 识别开关。密钥只放在本地服务端 .env.local，不写入前端。
+var WUJI_AI_ENABLED = false;

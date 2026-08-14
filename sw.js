@@ -1,5 +1,5 @@
 // 物记 Service Worker：离线可用 + 安装到桌面
-var CACHE = "wuji-v2-design";
+var CACHE = "wuji-v6-product-model";
 var ASSETS = [
   "./",
   "./index.html",
