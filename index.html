@@ -45,10 +45,12 @@
     <input type="file" id="avatar-input" accept="image/*" hidden>
   </div>
   <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="auth.js"></script>
   <script src="data.js"></script>
   <script src="libs/pinyin-pro.min.js"></script>
   <script src="libs/xlsx.full.min.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=auth-password-1"></script>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").catch(function () {});

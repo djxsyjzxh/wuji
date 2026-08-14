@@ -1,5 +1,5 @@
 // 物记 Service Worker：离线可用 + 安装到桌面
-var CACHE = "wuji-v6-product-model";
+var CACHE = "wuji-v9-password-auth";
 var ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ var ASSETS = [
   "./app.js",
   "./data.js",
   "./config.js",
+  "./auth.js",
   "./libs/pinyin-pro.min.js",
   "./libs/xlsx.full.min.js",
   "./libs/zxing.min.js",

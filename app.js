@@ -12,6 +12,7 @@
   var LS_PURCHASES = "wuji.purchases.v1";
   var LS_EXPERIENCES = "wuji.experiences.v1";
   var LS_WISHLISTS = "wuji.wishlists.v1";
+  var ACTIVE_STORAGE_SCOPE = "guest";
 
   var CATEGORIES = [
     "护肤美妆",
@@ -156,7 +157,8 @@
     scanTracks: null,
     zxingReader: null,
     toastTimer: null,
-    cloudOk: false
+    cloudOk: false,
+    pendingMigration: null
   };
 
   var view = document.getElementById("view");
@@ -725,6 +727,93 @@
       : "";
   }
 
+  function setStorageScope(userId) {
+    var scope = userId ? "user-" + String(userId).replace(/[^a-zA-Z0-9_-]/g, "") : "guest";
+    ACTIVE_STORAGE_SCOPE = scope;
+    LS_RECORDS = "wuji.records.v1." + scope;
+    LS_STORES = "wuji.stores.v1." + scope;
+    LS_PROFILE = "wuji.profile.v1." + scope;
+    LS_SEEDED = "wuji.seeded.v1." + scope;
+    LS_BARCODE = "wuji.barcode.v1." + scope;
+    LS_CART = "wuji.cart.v1." + scope;
+    LS_PRODUCTS = "wuji.products.v1." + scope;
+    LS_PURCHASES = "wuji.purchases.v1." + scope;
+    LS_EXPERIENCES = "wuji.experiences.v1." + scope;
+    LS_WISHLISTS = "wuji.wishlists.v1." + scope;
+    if (!userId) {
+      [
+        [LS_RECORDS, "wuji.records.v1"],
+        [LS_STORES, "wuji.stores.v1"],
+        [LS_PROFILE, "wuji.profile.v1"],
+        [LS_SEEDED, "wuji.seeded.v1"],
+        [LS_BARCODE, "wuji.barcode.v1"],
+        [LS_CART, "wuji.cart.v1"],
+        [LS_PRODUCTS, "wuji.products.v1"],
+        [LS_PURCHASES, "wuji.purchases.v1"],
+        [LS_EXPERIENCES, "wuji.experiences.v1"],
+        [LS_WISHLISTS, "wuji.wishlists.v1"]
+      ].forEach(function (pair) {
+        if (!localStorage.getItem(pair[0]) && localStorage.getItem(pair[1])) {
+          localStorage.setItem(pair[0], localStorage.getItem(pair[1]));
+        }
+      });
+    }
+  }
+
+  function mergeScopedList(current, incoming) {
+    var result = Array.isArray(current) ? current.slice() : [];
+    (Array.isArray(incoming) ? incoming : []).forEach(function (item) {
+      if (!item || !item.id || result.some(function (existing) { return existing.id === item.id; })) return;
+      result.push(item);
+    });
+    return result;
+  }
+
+  function activateUserStorageScope() {
+    var owner = currentOwner();
+    var nextScope = owner ? "user-" + String(owner).replace(/[^a-zA-Z0-9_-]/g, "") : "guest";
+    if (ACTIVE_STORAGE_SCOPE === nextScope) return true;
+    var guestData = {
+      records: state.records.slice(),
+      stores: state.stores.slice(),
+      cart: state.cart.slice(),
+      profile: Object.assign({}, state.profile)
+    };
+    setStorageScope(owner);
+    var migrationKey = "wuji.migration.v1." + nextScope;
+    var hasGuestData = guestData.records.length || guestData.stores.length || guestData.cart.length;
+    if (owner && hasGuestData && !localStorage.getItem(migrationKey)) {
+      state.pendingMigration = { key: migrationKey, guestData: guestData };
+      return false;
+    }
+    var hasUserCache = !!(
+      localStorage.getItem(LS_RECORDS) ||
+      localStorage.getItem(LS_STORES) ||
+      localStorage.getItem(LS_CART) ||
+      localStorage.getItem(LS_PROFILE)
+    );
+    loadAll(false);
+    if (!hasUserCache && owner) {
+      state.records = guestData.records;
+      state.stores = guestData.stores;
+      state.cart = guestData.cart;
+      state.profile = guestData.profile;
+      saveRecords();
+      saveStores();
+      saveCart();
+      saveProfile();
+      toast("本机记录已带入这个账号");
+    } else if (owner) {
+      state.records = mergeScopedList(state.records, guestData.records);
+      state.stores = mergeScopedList(state.stores, guestData.stores);
+      state.cart = mergeScopedList(state.cart, guestData.cart);
+      saveRecords();
+      saveStores();
+      saveCart();
+    }
+    return true;
+  }
+
   function authApi(path, options) {
     options = options || {};
     options.headers = Object.assign(
@@ -829,6 +918,9 @@
   }
 
   function signOut() {
+    if (typeof WujiAuth !== "undefined") {
+      WujiAuth.signOut().catch(function () {});
+    }
     if (authed()) {
       authApi("/logout", {
         method: "POST",
@@ -839,6 +931,8 @@
       }).catch(function () {});
     }
     clearSession();
+    setStorageScope("");
+    loadAll(false);
     closeAuthSheet();
     route();
     toast("已退出登录");
@@ -1369,10 +1463,57 @@
   }
 
   function enterApp() {
+    if (!activateUserStorageScope()) {
+      openMigrationSheet();
+      return;
+    }
     state.cloudOk = false;
     loadProfileFromCloud();
     route();
     syncFromCloud();
+  }
+
+  function openMigrationSheet() {
+    var sheet = document.getElementById("migration-sheet");
+    if (!sheet) {
+      sheet = document.createElement("div");
+      sheet.id = "migration-sheet";
+      sheet.className = "sheet-overlay migration-overlay";
+      sheet.innerHTML =
+        '<div class="sheet migration-sheet" role="dialog" aria-modal="true" aria-labelledby="migration-title">' +
+        '<div class="sheet-title" id="migration-title">发现本机记录</div>' +
+        '<div class="migration-copy">要把这台设备里的记录带入这个账号吗？之后换设备也能继续查看。</div>' +
+        '<button class="btn btn-primary" data-action="migration-merge">上传并合并</button>' +
+        '<button class="btn btn-ghost" data-action="migration-skip">暂不上传</button>' +
+        '</div>';
+      document.getElementById("app").appendChild(sheet);
+    }
+    sheet.style.display = "flex";
+  }
+
+  function finishMigration(mode) {
+    var pending = state.pendingMigration;
+    if (!pending) return;
+    localStorage.setItem(pending.key, mode);
+    var guestData = pending.guestData;
+    loadAll(false);
+    if (mode === "merge") {
+      state.records = mergeScopedList(state.records, guestData.records);
+      state.stores = mergeScopedList(state.stores, guestData.stores);
+      state.cart = mergeScopedList(state.cart, guestData.cart);
+      if (!localStorage.getItem(LS_PROFILE)) state.profile = guestData.profile;
+      saveRecords();
+      saveStores();
+      saveCart();
+      saveProfile();
+      toast("本机记录已合并到账号");
+    } else {
+      toast("已保留本机记录");
+    }
+    state.pendingMigration = null;
+    var sheet = document.getElementById("migration-sheet");
+    if (sheet) sheet.style.display = "none";
+    enterApp();
   }
 
   function setAuthMode(mode) {
@@ -1442,6 +1583,243 @@
       });
   }
 
+  function renderLogin() {
+    return (
+      '<div class="auth-wrap auth-sheet auth-page">' +
+      '<div class="auth-mark" aria-hidden="true">物</div>' +
+      '<div class="auth-title">物记</div>' +
+      '<div class="auth-sub">把生活里的东西，记在自己手里。</div>' +
+      '<div class="auth-tabs">' +
+      '<button type="button" class="auth-tab ' +
+      (state.authMode === "login" ? "on" : "") +
+      '" data-action="auth-mode" data-value="login">登录</button>' +
+      '<button type="button" class="auth-tab ' +
+      (state.authMode === "register" ? "on" : "") +
+      '" data-action="auth-mode" data-value="register">注册</button>' +
+      "</div>" +
+      '<div class="card auth-card">' +
+      '<div class="auth-field" id="auth-nick-field" style="' +
+      (state.authMode === "register" ? "" : "display:none;") +
+      '">' +
+      '<label class="label" for="auth-nick">昵称</label>' +
+      '<input class="input" id="auth-nick" maxlength="12" autocomplete="nickname" placeholder="给自己起个名字（可留空）">' +
+      "</div>" +
+      '<label class="label" for="auth-email">邮箱</label>' +
+      '<input class="input" id="auth-email" type="email" autocomplete="email" placeholder="name@example.com">' +
+      '<label class="label" for="auth-pass">密码</label>' +
+      '<input class="input" id="auth-pass" type="password" autocomplete="current-password" maxlength="72" placeholder="至少 6 位">' +
+      '<button class="btn btn-primary" id="auth-submit" data-action="auth-submit">' +
+      (state.authMode === "register" ? "注册并进入" : "登录") +
+      "</button>" +
+      (state.authMode === "login"
+        ? '<button class="auth-reset-link" type="button" data-action="auth-reset">忘记密码？</button>'
+        : "") +
+      '<div class="hint auth-note">登录后，物品记录会同步到云端；不登录也可以继续使用本机记录。</div>' +
+      "</div></div>"
+    );
+  }
+
+  function resetAuthPassword() {
+    var emailEl = document.getElementById("auth-email");
+    var email = emailEl ? String(emailEl.value || "").trim() : "";
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      toast("请先填写正确的邮箱地址");
+      return;
+    }
+    requestPasswordReset(email)
+      .then(function (r) {
+        if (r.ok) toast("重置密码邮件已发送，请检查邮箱");
+        else toast((r.error && r.error.message) || "邮件发送失败，请稍后再试");
+      })
+      .catch(function () {
+        toast("网络异常，请稍后再试");
+      });
+  }
+
+  function submitAuth() {
+    var emailEl = document.getElementById("auth-email");
+    var passEl = document.getElementById("auth-pass");
+    var nickEl = document.getElementById("auth-nick");
+    var email = emailEl ? String(emailEl.value || "").trim().toLowerCase() : "";
+    var pass = passEl ? passEl.value || "" : "";
+    var nick = nickEl ? String(nickEl.value || "").trim() : "";
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      toast("请输入正确的邮箱地址");
+      return;
+    }
+    if (pass.length < 6) {
+      toast("密码至少 6 位");
+      return;
+    }
+    var btn = document.getElementById("auth-submit");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = state.authMode === "register" ? "正在注册…" : "正在登录…";
+    }
+    var task = state.authMode === "register"
+      ? signUp(email, pass, nick || "物友")
+      : signIn(email, pass);
+    task
+      .then(function (r) {
+        if (btn) btn.disabled = false;
+        var d = r.data || {};
+        var session = d.session || (d.access_token ? d : null);
+        if (r.ok && session && session.access_token) {
+          state.session = session;
+          state.profile.name = nick || state.profile.name || "物友";
+          state.profile.email = email;
+          saveProfile();
+          saveSession();
+          closeAuthSheet();
+          enterApp();
+          toast(state.authMode === "register" ? "注册成功，欢迎使用" : "欢迎回来");
+        } else if (r.ok && d.user && !session) {
+          toast("注册成功，请先到邮箱完成验证，再回来登录");
+          state.authMode = "login";
+          renderAuthForm();
+          var nextEmail = document.getElementById("auth-email");
+          if (nextEmail) nextEmail.value = email;
+        } else {
+          var msg = (r.error && r.error.message) || d.error_description || d.msg || d.message || "";
+          if (/invalid login credentials/i.test(msg)) msg = "邮箱或密码不正确";
+          if (/email not confirmed/i.test(msg)) msg = "请先完成邮箱验证";
+          if (/already registered|already exists/i.test(msg)) msg = "这个邮箱已经注册，请直接登录";
+          toast(msg || "操作失败，请稍后再试");
+          if (state.authMode === "register" && /already registered|already exists/i.test(msg)) {
+            state.authMode = "login";
+            renderAuthForm();
+          }
+        }
+      })
+      .catch(function () {
+        if (btn) btn.disabled = false;
+        toast("网络异常，请检查网络后重试");
+      });
+  }
+
+  /* OTP 登录已移除，保留以下旧代码仅用于历史版本对照。
+  function renderLoginOtpLegacy() {
+    var otpMode = state.authMode === "otp";
+    return (
+      '<div class="auth-wrap auth-sheet auth-page">' +
+      '<div class="auth-mark" aria-hidden="true">物</div>' +
+      '<div class="auth-title">物记</div>' +
+      '<div class="auth-sub">把生活里的东西，记在自己手里。</div>' +
+      '<div class="auth-tabs auth-tabs-wide">' +
+      '<button type="button" class="auth-tab ' + (state.authMode === "login" ? "on" : "") + '" data-action="auth-mode" data-value="login">密码</button>' +
+      '<button type="button" class="auth-tab ' + (otpMode ? "on" : "") + '" data-action="auth-mode" data-value="otp">验证码</button>' +
+      '<button type="button" class="auth-tab ' + (state.authMode === "register" ? "on" : "") + '" data-action="auth-mode" data-value="register">注册</button>' +
+      '</div>' +
+      '<div class="card auth-card">' +
+      (otpMode
+        ? '<label class="label" for="auth-otp-email">邮箱</label>' +
+          '<input class="input" id="auth-otp-email" type="email" autocomplete="email" value="' + esc(state.authOtpEmail) + '" placeholder="name@example.com">' +
+          '<label class="label" for="auth-otp-nick">昵称（首次登录可留空）</label>' +
+          '<input class="input" id="auth-otp-nick" maxlength="12" autocomplete="nickname" placeholder="给自己起个名字">' +
+          (state.authOtpSent
+            ? '<label class="label" for="auth-otp-code">邮箱验证码</label>' +
+              '<input class="input otp-code-input" id="auth-otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="输入 6 位验证码">' +
+              '<button class="btn btn-primary" data-action="auth-otp-verify">验证并进入</button>' +
+              '<button class="auth-reset-link" type="button" data-action="auth-otp-send">' + (state.authOtpCooldown ? "重新发送（" + state.authOtpCooldown + "秒）" : "重新发送验证码") + '</button>'
+            : '<button class="btn btn-primary" data-action="auth-otp-send">发送验证码</button>')
+        : '<div class="auth-field" id="auth-nick-field" style="' + (state.authMode === "register" ? "" : "display:none;") + '">' +
+          '<label class="label" for="auth-nick">昵称</label>' +
+          '<input class="input" id="auth-nick" maxlength="12" autocomplete="nickname" placeholder="给自己起个名字（可留空）">' +
+          '</div>' +
+          '<label class="label" for="auth-email">邮箱</label>' +
+          '<input class="input" id="auth-email" type="email" autocomplete="email" placeholder="name@example.com">' +
+          '<label class="label" for="auth-pass">密码</label>' +
+          '<input class="input" id="auth-pass" type="password" autocomplete="current-password" maxlength="72" placeholder="至少 6 位">' +
+          '<button class="btn btn-primary" id="auth-submit" data-action="auth-submit">' + (state.authMode === "register" ? "注册并进入" : "登录") + '</button>' +
+          (state.authMode === "login" ? '<button class="auth-reset-link" type="button" data-action="auth-reset">忘记密码？</button>' : "")) +
+      '<div class="hint auth-note">验证码会发送到你的邮箱。登录后，物品记录会同步到云端。</div>' +
+      '</div></div>'
+    );
+  }
+
+  function startOtpCooldown() {
+    if (state.authOtpTimer) clearInterval(state.authOtpTimer);
+    state.authOtpCooldown = 60;
+    state.authOtpTimer = setInterval(function () {
+      state.authOtpCooldown = Math.max(0, state.authOtpCooldown - 1);
+      if (state.authOtpCooldown === 0) {
+        clearInterval(state.authOtpTimer);
+        state.authOtpTimer = null;
+      }
+      if (state.authMode === "otp" && state.authOtpSent) renderAuthForm();
+    }, 1000);
+  }
+
+  function sendAuthOtp() {
+    if (state.authOtpCooldown > 0) return;
+    var emailEl = document.getElementById("auth-otp-email");
+    var email = emailEl ? String(emailEl.value || "").trim().toLowerCase() : "";
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      toast("请输入正确的邮箱地址");
+      return;
+    }
+    var button = document.querySelector('[data-action="auth-otp-send"]');
+    if (button) { button.disabled = true; button.textContent = "正在发送…"; }
+    WujiAuth.sendEmailOtp(email, true)
+      .then(function (r) {
+        if (r.ok) {
+          state.authOtpEmail = email;
+          state.authOtpSent = true;
+          renderAuthForm();
+          var nextEmail = document.getElementById("auth-otp-email");
+          if (nextEmail) nextEmail.value = email;
+          startOtpCooldown();
+          toast("验证码已发送，请检查邮箱");
+        } else {
+          toast((r.error && r.error.message) || "验证码发送失败，请稍后再试");
+          if (button) { button.disabled = false; button.textContent = "发送验证码"; }
+        }
+      })
+      .catch(function () {
+        if (button) { button.disabled = false; button.textContent = "发送验证码"; }
+        toast("网络异常，请稍后再试");
+      });
+  }
+
+  function verifyAuthOtp() {
+    var codeEl = document.getElementById("auth-otp-code");
+    var nickEl = document.getElementById("auth-otp-nick");
+    var code = codeEl ? String(codeEl.value || "").replace(/\D/g, "") : "";
+    var email = state.authOtpEmail;
+    if (!email || !/^\d{6}$/.test(code)) {
+      toast("请输入 6 位邮箱验证码");
+      return;
+    }
+    var button = document.querySelector('[data-action="auth-otp-verify"]');
+    if (button) { button.disabled = true; button.textContent = "正在验证…"; }
+    WujiAuth.verifyEmailOtp(email, code)
+      .then(function (r) {
+        if (button) button.disabled = false;
+        var d = r.data || {};
+        var session = d.session || (d.access_token ? d : null);
+        if (r.ok && session && session.access_token) {
+          state.session = session;
+          state.profile.name = (nickEl ? String(nickEl.value || "").trim() : "") || state.profile.name || "物友";
+          state.profile.email = email;
+          saveProfile();
+          saveSession();
+          state.authOtpSent = false;
+          closeAuthSheet();
+          enterApp();
+          toast("验证成功，欢迎回来");
+        } else {
+          toast((r.error && r.error.message) || "验证码不正确或已过期");
+        }
+      })
+      .catch(function () {
+        if (button) button.disabled = false;
+        toast("网络异常，请稍后再试");
+      });
+  }
+
+  }
+  */
+
   function saveProfile() {
     localStorage.setItem(LS_PROFILE, JSON.stringify(state.profile));
   }
@@ -1507,6 +1885,49 @@
       localStorage.setItem(LS_SEEDED, "1");
     }
     syncNormalizedFromLegacy();
+  }
+
+  // Supabase 官方客户端优先；保留 REST 分支，方便旧部署在 CDN 暂时不可用时继续工作。
+  function signUp(email, password, nickname) {
+    if (typeof WujiAuth !== "undefined" && WujiAuth.getClient()) {
+      return WujiAuth.signUp(email, password, nickname);
+    }
+    return authApi("/signup", {
+      method: "POST",
+      body: JSON.stringify({ email: email, password: password, data: { nickname: nickname } })
+    }).then(function (res) {
+      return res.json().then(function (d) {
+        return { ok: res.ok, status: res.status, data: d };
+      });
+    });
+  }
+
+  function signIn(email, password) {
+    if (typeof WujiAuth !== "undefined" && WujiAuth.getClient()) {
+      return WujiAuth.signIn(email, password);
+    }
+    return authApi("/token?grant_type=password", {
+      method: "POST",
+      body: JSON.stringify({ email: email, password: password })
+    }).then(function (res) {
+      return res.json().then(function (d) {
+        return { ok: res.ok, status: res.status, data: d };
+      });
+    });
+  }
+
+  function requestPasswordReset(email) {
+    if (typeof WujiAuth !== "undefined" && WujiAuth.getClient()) {
+      return WujiAuth.resetPassword(email);
+    }
+    return authApi("/recover", {
+      method: "POST",
+      body: JSON.stringify({ email: email })
+    }).then(function (res) {
+      return res.json().then(function (d) {
+        return { ok: res.ok, status: res.status, data: d };
+      });
+    });
   }
 
   function updateCartBadge() {
@@ -3920,6 +4341,10 @@
     stopScanner();
     closeSheets();
     var r = parseHash();
+    if (r.path === "stores" || r.path === "store-record" || r.path === "store-detail") {
+      history.replaceState(null, "", location.pathname + location.search + "#/home");
+      r = parseHash();
+    }
     var fn = VIEWS[r.path] || renderHome;
     view.innerHTML = fn(r.id);
     var tab =
@@ -4437,6 +4862,18 @@
     }
     if (action === "auth-submit") {
       submitAuth();
+      return;
+    }
+    if (action === "auth-reset") {
+      resetAuthPassword();
+      return;
+    }
+    if (action === "migration-merge") {
+      finishMigration("merge");
+      return;
+    }
+    if (action === "migration-skip") {
+      finishMigration("skip");
       return;
     }
     if (action === "logout") {
@@ -5246,9 +5683,24 @@
 
   window.addEventListener("hashchange", route);
 
+  setStorageScope("");
   loadAll();
   restoreSession();
+  if (authed()) activateUserStorageScope();
   route();
+  if (typeof WujiAuth !== "undefined") {
+    WujiAuth.init(function (session, event) {
+      if (session && session.access_token) {
+        state.session = session;
+        saveSession();
+        enterApp();
+      } else if (event === "SIGNED_OUT" || event === "INITIAL_SESSION") {
+        clearSession();
+        state.cloudOk = false;
+        route();
+      }
+    }).catch(function () {});
+  }
   if (authed()) {
     var expired =
       state.session.expires_at && Date.now() > state.session.expires_at;
