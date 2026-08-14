@@ -2,3 +2,6 @@
 Thumbs.db
 *.log
 .env.local
+agents.md
+AI_SETUP.md
+AUTH_SETUP.md
