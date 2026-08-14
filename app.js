@@ -2101,6 +2101,7 @@
       '<span class="row-name">' +
       esc(r.name) +
       "</span>" +
+      (r.brand ? '<span class="row-meta item-brand">' + esc(r.brand) + "</span>" : "") +
       (cat ? '<span class="row-meta">' + esc(cat) + "</span>" : "") +
       (r.rating ? starsLine(r.rating) : "") +
       "</span>" +
@@ -2428,6 +2429,9 @@
           '<span class="row-name item-name-full">' +
           esc(g.product.name || latest.name) +
           "</span>" +
+          ((g.product.brand || latest.brand)
+            ? '<span class="item-brand">' + esc(g.product.brand || latest.brand) + "</span>"
+            : "") +
           '<span class="item-meta-row">' +
           '<span class="item-rating">' +
           (rating == null ? "待评价" : "★ " + rating.toFixed(1)) +

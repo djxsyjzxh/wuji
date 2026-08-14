@@ -1,5 +1,5 @@
 // 物记 Service Worker：离线可用 + 安装到桌面
-var CACHE = "wuji-v9-password-auth";
+var CACHE = "wuji-v12-brand-display";
 var ASSETS = [
   "./",
   "./index.html",

@@ -135,7 +135,7 @@ button {
 }
 
 .home-moon {
-  display: none;
+  display: none !important;
 }
 
 .home-quick-actions {
@@ -311,6 +311,7 @@ button {
 }
 
 .auth-mark {
+  display: none !important;
   width: 56px;
   height: 56px;
   margin: 0 auto 16px;
@@ -362,13 +363,17 @@ button {
 }
 
 .auth-reset-link {
-  display: block;
+  display: none !important;
   margin: 12px auto 0;
   border: 0;
   background: none;
   color: var(--muted);
   font-size: 12px;
   cursor: pointer;
+}
+
+#view > .stat-grid > .stat:nth-child(2) {
+  display: none;
 }
 
 .auth-note {
@@ -643,6 +648,10 @@ button {
 
 .home-recent-card .row-name {
   font-size: 15px;
+}
+
+.home-recent-card .row-meta:not(.item-brand) {
+  display: none;
 }
 
 .home-recent-card .stars-line {
@@ -1122,6 +1131,15 @@ button {
   text-overflow: clip;
   overflow-wrap: anywhere;
   line-height: 1.25;
+}
+
+.item-brand {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .item-meta-row {
